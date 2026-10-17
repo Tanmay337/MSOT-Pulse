@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  web:
+    build: .
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_DATABASE_URL=postgresql://msot_admin:msot_pulse_password@postgres:5432/msot_course_tracker
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: msot_admin
+      POSTGRES_PASSWORD: msot_pulse_password
+      POSTGRES_DB: msot_course_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql

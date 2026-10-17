@@ -1,0 +1,10 @@
+Campus,Track,SubjectCode,SubjectName,Batch,Faculty,IsVisiting,HourlyRate,TargetFinishDate,Unit,TopicTitle,PlannedHours,ExamScope,Status,PctComplete
+JUJ,Mirai Track,CS-301,Database Management Systems,CSE-2026-A,Prof. R. Sharma,false,0,2026-11-25,Unit 1,ER Modelling & Relational Algebra,4.0,Sessionals,Completed,100
+JUJ,Mirai Track,CS-301,Database Management Systems,CSE-2026-A,Prof. R. Sharma,false,0,2026-11-25,Unit 1,SQL Joins & Aggregations,4.5,Mid-Term,Completed,100
+JUJ,Mirai Track,CS-301,Database Management Systems,CSE-2026-A,Prof. R. Sharma,false,0,2026-11-25,Unit 2,Normalization 1NF to BCNF,5.0,Mid-Term,In Progress,60
+JUJ,Mirai Track,CS-304,Full-Stack React & System Architecture,CSE-2026-A,Vikram Aditya,true,1500,2026-11-12,Unit 1,React Reconciliation & Hooks,5.0,Sessionals,Completed,100
+JUJ,Mirai Track,CS-304,Full-Stack React & System Architecture,CSE-2026-A,Vikram Aditya,true,1500,2026-11-12,Unit 2,SSR & Edge Caching,6.0,Mid-Term,In Progress,40
+HI-Tech,Mirai Track,CS-308,Operating Systems & Kernel Internals,CSE-2026-B,Prof. A. Kulkarni,true,1200,2026-11-20,Unit 1,Process Scheduling,5.0,Sessionals,Completed,100
+HI-Tech,University Track,UNI-209,Discrete Mathematics,CSE-2026-B,Dr. N. Verma,false,0,2026-11-28,Unit 1,Propositional Logic,6.0,Mid-Term,Completed,100
+JUJ,Mirai Track,CS-311,Design & Analysis of Algorithms,CSE-2026-J,Prof. K. Nair,false,0,2026-11-24,Unit 1,Divide & Conquer,6.0,Mid-Term,Completed,100
+RGIB,University Track,UNI-212,Probability & Statistics,CSE-2026-G,Dr. S. Joshi,false,0,2026-11-26,Unit 1,Random Variables & Distributions,5.5,Mid-Term,Completed,100
