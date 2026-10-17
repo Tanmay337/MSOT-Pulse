@@ -1,3 +1,355 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --page: #070b14;
+  --surface: rgba(15, 23, 42, .82);
+  --surface-strong: #0f172a;
+  --line: rgba(148, 163, 184, .16);
+  --line-strong: rgba(148, 163, 184, .28);
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --accent: #22d3ee;
+  --neo-light: rgba(255, 255, 255, .055);
+  --neo-dark: rgba(0, 0, 0, .26);
+  --neo-raised: 10px 10px 24px var(--neo-dark), -8px -8px 20px var(--neo-light);
+  --neo-inset: inset 5px 5px 12px var(--neo-dark), inset -5px -5px 12px var(--neo-light);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f4f7fb;
+  --surface: rgba(255, 255, 255, .92);
+  --surface-strong: #f1f5f9;
+  --line: rgba(100, 116, 139, .2);
+  --line-strong: rgba(100, 116, 139, .32);
+  --ink: #172033;
+  --muted: #64748b;
+  --neo-light: rgba(255, 255, 255, .9);
+  --neo-dark: rgba(148, 163, 184, .24);
+  --neo-raised: 10px 10px 22px var(--neo-dark), -8px -8px 20px var(--neo-light);
+  --neo-inset: inset 5px 5px 12px var(--neo-dark), inset -5px -5px 12px var(--neo-light);
+}
+html { background: var(--page); }
+body { margin: 0; min-width: 320px; background: radial-gradient(circle at 12% -8%, rgba(34,211,238,.12), transparent 28rem), radial-gradient(circle at 92% 0%, rgba(129,140,248,.13), transparent 26rem), var(--page); color: var(--ink); transition: background-color .35s ease, color .35s ease; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+.bg-slate-900 { background-color: var(--surface) !important; }
+.bg-slate-950 { background-color: var(--surface-strong) !important; }
+.bg-\[\#070b14\], .bg-\[\#060a12\] { background-color: var(--page) !important; }
+.border-slate-800 { border-color: var(--line) !important; }
+.border-slate-700 { border-color: var(--line-strong) !important; }
+.text-white, .text-slate-100 { color: var(--ink) !important; }
+.text-slate-200, .text-slate-300 { color: color-mix(in srgb, var(--ink) 82%, var(--muted)) !important; }
+.text-slate-400 { color: var(--muted) !important; }
+:root[data-theme="light"] .bg-slate-800,
+:root[data-theme="light"] .bg-slate-900\/95,
+:root[data-theme="light"] .bg-slate-900\/90,
+:root[data-theme="light"] .bg-slate-950\/90,
+:root[data-theme="light"] .bg-slate-950\/60,
+:root[data-theme="light"] .bg-slate-950\/40 { background-color: #f8fafc !important; }
+:root[data-theme="light"] .bg-slate-950,
+:root[data-theme="light"] input.bg-slate-950,
+:root[data-theme="light"] select.bg-slate-950,
+:root[data-theme="light"] textarea.bg-slate-950 { background-color: #f1f5f9 !important; }
+:root[data-theme="light"] .bg-slate-800:hover,
+:root[data-theme="light"] .bg-slate-700:hover,
+:root[data-theme="light"] .hover\:bg-slate-800:hover,
+:root[data-theme="light"] .hover\:bg-slate-700:hover { background-color: #e8eef6 !important; }
+:root[data-theme="light"] .border-slate-800,
+:root[data-theme="light"] .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: #dbe4ef !important; }
+:root[data-theme="light"] .text-slate-950 { color: #172033 !important; }
+:root[data-theme="light"] .text-cyan-300 { color: #287f9b !important; }
+:root[data-theme="light"] .text-emerald-300 { color: #047857 !important; }
+:root[data-theme="light"] .text-amber-300 { color: #b45309 !important; }
+:root[data-theme="light"] .text-rose-300 { color: #be123c !important; }
+:root[data-theme="light"] .text-indigo-300 { color: #5961b8 !important; }
+:root[data-theme="light"] .bg-indigo-950\/70 { background-color: #eef2ff !important; }
+:root[data-theme="light"] .bg-cyan-950\/40 { background-color: #ecfeff !important; }
+:root[data-theme="light"] .bg-rose-950\/70 { background-color: #fff1f2 !important; }
+:root[data-theme="light"] .bg-indigo-500\/15,
+:root[data-theme="light"] .bg-cyan-500\/20 { background-color: #eef2ff !important; }
+:root[data-theme="light"] .bg-indigo-600 { background-color: #6366d8 !important; }
+:root[data-theme="light"] .hover\:bg-indigo-500:hover { background-color: #7478df !important; }
+:root[data-theme="light"] .bg-cyan-500 { background-color: #67d3e8 !important; }
+:root[data-theme="light"] .border-cyan-500\/30,
+:root[data-theme="light"] .border-indigo-500\/30 { border-color: rgba(99,102,216,.24) !important; }
+:root[data-theme="light"] .from-indigo-600 { --tw-gradient-from: #6366d8 var(--tw-gradient-from-position) !important; }
+:root[data-theme="light"] .to-cyan-500 { --tw-gradient-to: #67d3e8 var(--tw-gradient-to-position) !important; }
+:root[data-theme="light"] .backdrop-blur-md { background-color: rgba(255,255,255,.88) !important; }
+:root[data-theme="light"] table thead,
+:root[data-theme="light"] table tr.bg-slate-950\/90 { background-color: #eef3f8 !important; }
+header { box-shadow: 0 1px 0 var(--line), 0 10px 30px rgba(15,23,42,.04); transition: background-color .35s ease, border-color .35s ease; }
+main > * { animation: rise-in .5s cubic-bezier(.2,.8,.2,1) both; }
+main > *:nth-child(2) { animation-delay: .07s; }
+main > *:nth-child(3) { animation-delay: .14s; }
+main > *:nth-child(4) { animation-delay: .21s; }
+main .rounded-2xl, main .rounded-3xl { transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease, background-color .35s ease; }
+main .rounded-2xl:hover, main .rounded-3xl:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--line)) !important; box-shadow: var(--neo-raised); }
+main .grid > .rounded-2xl:hover { transform: translateY(-3px); }
+main > * > .rounded-2xl, main > .rounded-2xl, main .rounded-3xl, main .rounded-2xl.bg-slate-900, main .rounded-2xl.bg-slate-950 { box-shadow: var(--neo-raised); }
+header .bg-slate-950, header button.bg-slate-950, header .rounded-xl, main input, main select, main textarea, main button.bg-slate-950, main button.bg-slate-800 { box-shadow: var(--neo-inset); }
+header button, main button { border-radius: .8rem; }
+main button.bg-indigo-600, main button.bg-emerald-600, main button.bg-rose-600, main button[class*="bg-gradient"] { box-shadow: 6px 6px 14px rgba(2,6,23,.25), -3px -3px 10px rgba(255,255,255,.08); }
+main button.bg-indigo-600:active, main button.bg-emerald-600:active, main button.bg-rose-600:active, main button[class*="bg-gradient"]:active { box-shadow: var(--neo-inset); }
+button, input, select, textarea { transition: border-color .2s ease, background-color .25s ease, color .2s ease, transform .2s ease, box-shadow .2s ease; }
+button:hover:not(:disabled) { transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(0) scale(.98); }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+table tbody tr { transition: background-color .18s ease; }
+table tbody tr:hover { background-color: color-mix(in srgb, var(--accent) 7%, transparent); }
+table th { letter-spacing: .08em; }
+@keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 640px) { main { padding: 1rem !important; } header { padding-inline: 1rem !important; } header .max-w-7xl { align-items: flex-start; } header .max-w-7xl > .flex:last-child { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+
+/* Glassmorphism layer: translucent depth with readable borders and restrained blur. */
+:root {
+  --glass-dark: rgba(15, 23, 42, .64);
+  --glass-light: rgba(255, 255, 255, .58);
+  --glass-border: rgba(255, 255, 255, .16);
+  --glass-highlight: rgba(255, 255, 255, .24);
+}
+:root[data-theme="light"] {
+  --glass-dark: rgba(255, 255, 255, .68);
+  --glass-light: rgba(255, 255, 255, .78);
+  --glass-border: rgba(148, 163, 184, .24);
+  --glass-highlight: rgba(255, 255, 255, .82);
+}
+
+header,
+main > * > .bg-slate-900,
+main > .bg-slate-900,
+main .bg-slate-900\/95,
+main .bg-slate-900\/90,
+main .bg-slate-900\/80,
+main .bg-slate-900\/70 {
+  background: linear-gradient(135deg, var(--glass-light), var(--glass-dark)) !important;
+  border: 1px solid var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+main > * > .bg-slate-900,
+main > .bg-slate-900,
+main .bg-slate-900\/95 {
+  position: relative;
+  overflow: hidden;
+}
+
+main > * > .bg-slate-900::before,
+main > .bg-slate-900::before,
+main .bg-slate-900\/95::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--glass-highlight), transparent);
+  pointer-events: none;
+}
+
+header {
+  background: linear-gradient(110deg, color-mix(in srgb, var(--glass-light) 86%, transparent), color-mix(in srgb, var(--glass-dark) 88%, transparent)) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  backdrop-filter: blur(22px) saturate(135%);
+}
+
+:root[data-theme="light"] main .bg-slate-950,
+:root[data-theme="light"] main .bg-slate-950\/90,
+:root[data-theme="light"] main .bg-slate-950\/60 {
+  background-color: rgba(241, 245, 249, .58) !important;
+  border-color: rgba(148, 163, 184, .2) !important;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  header,
+  main > * > .bg-slate-900,
+  main > .bg-slate-900,
+  main .bg-slate-900\/95 {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* 90% glass mode: most structural surfaces share one translucent material. */
+main .rounded-2xl,
+main .rounded-3xl,
+header,
+aside,
+main .rounded-xl[class*="bg-slate-"],
+main input,
+main select,
+main textarea,
+.fixed.z-50 > div {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--glass-light) 82%, transparent), color-mix(in srgb, var(--glass-dark) 84%, transparent)) !important;
+  border: 1px solid var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+  backdrop-filter: blur(20px) saturate(135%);
+}
+
+main .rounded-2xl,
+main .rounded-3xl,
+aside,
+.fixed.z-50 > div {
+  box-shadow: var(--neo-raised), inset 0 1px 0 var(--glass-highlight);
+}
+
+main .rounded-xl[class*="bg-slate-"],
+main input,
+main select,
+main textarea {
+  box-shadow: var(--neo-inset), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* Keep visual hierarchy: vibrant actions sit above the glass rather than disappearing into it. */
+main button.bg-indigo-600,
+main button.bg-emerald-600,
+main button.bg-rose-600,
+main button[class*="bg-gradient"],
+main .bg-cyan-500 {
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  backdrop-filter: blur(10px) saturate(120%);
+  box-shadow: 6px 6px 14px rgba(2, 6, 23, .18), inset 0 1px 0 rgba(255,255,255,.22);
+}
+
+/* Glass table header and segmented navigation surfaces. */
+table thead,
+header .bg-slate-950,
+header .rounded-xl,
+main .grid.grid-cols-2.bg-slate-950,
+main .bg-slate-950\/90 {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--glass-light) 74%, transparent), color-mix(in srgb, var(--glass-dark) 70%, transparent)) !important;
+  border-color: var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+
+:root[data-theme="light"] body {
+  background: radial-gradient(circle at 8% 0%, rgba(125,211,252,.22), transparent 26rem), radial-gradient(circle at 94% 5%, rgba(165,180,252,.2), transparent 28rem), var(--page);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  main .rounded-2xl, main .rounded-3xl, header, aside, main input, main select, main textarea, .fixed.z-50 > div { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* Dark-mode readability pass: denser glass and brighter secondary content. */
+:root[data-theme="dark"] {
+  --glass-dark: rgba(15, 23, 42, .88);
+  --glass-light: rgba(255, 255, 255, .08);
+  --glass-border: rgba(148, 163, 184, .26);
+  --glass-highlight: rgba(255, 255, 255, .14);
+  --surface: rgba(15, 23, 42, .9);
+  --surface-strong: #111c31;
+  --muted: #b5c2d3;
+}
+
+:root[data-theme="dark"] .text-white,
+:root[data-theme="dark"] .text-slate-100 { color: #f8fafc !important; }
+:root[data-theme="dark"] .text-slate-200 { color: #e2e8f0 !important; }
+:root[data-theme="dark"] .text-slate-300 { color: #cbd5e1 !important; }
+:root[data-theme="dark"] .text-slate-400 { color: #b5c2d3 !important; }
+:root[data-theme="dark"] .border-slate-800 { border-color: rgba(148, 163, 184, .24) !important; }
+:root[data-theme="dark"] .border-slate-700 { border-color: rgba(148, 163, 184, .34) !important; }
+
+:root[data-theme="dark"] main .rounded-2xl,
+:root[data-theme="dark"] main .rounded-3xl,
+:root[data-theme="dark"] header,
+:root[data-theme="dark"] aside,
+:root[data-theme="dark"] main input,
+:root[data-theme="dark"] main select,
+:root[data-theme="dark"] main textarea,
+:root[data-theme="dark"] .fixed.z-50 > div {
+  background: linear-gradient(135deg, rgba(30, 41, 59, .92), rgba(15, 23, 42, .94)) !important;
+  border-color: rgba(148, 163, 184, .25) !important;
+}
+
+:root[data-theme="dark"] main input,
+:root[data-theme="dark"] main select,
+:root[data-theme="dark"] main textarea {
+  color: #f8fafc !important;
+  background-color: rgba(15, 23, 42, .88) !important;
+}
+
+:root[data-theme="dark"] table thead,
+:root[data-theme="dark"] table tr.bg-slate-950\/90,
+:root[data-theme="dark"] header .bg-slate-950,
+:root[data-theme="dark"] header .rounded-xl {
+  background: rgba(15, 23, 42, .92) !important;
+}
+
+:root[data-theme="dark"] table tbody tr:hover {
+  background-color: rgba(34, 211, 238, .1) !important;
+}
+
+/* Reference-inspired dark dashboard treatment: navy glass, luminous edges, restrained glow. */
+:root[data-theme="dark"] {
+  --page: #06162a;
+  --surface: rgba(10, 34, 61, .68);
+  --surface-strong: rgba(8, 27, 50, .78);
+  --line: rgba(93, 158, 220, .2);
+  --line-strong: rgba(113, 180, 237, .32);
+  --ink: #f4f8ff;
+  --muted: #9fb5cc;
+  --glass-dark: rgba(5, 25, 49, .76);
+  --glass-light: rgba(28, 76, 122, .3);
+  --glass-border: rgba(98, 165, 225, .25);
+  --glass-highlight: rgba(162, 211, 255, .2);
+  --neo-dark: rgba(1, 10, 24, .42);
+  --neo-light: rgba(80, 150, 210, .08);
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 50% -12%, rgba(25, 119, 211, .32), transparent 34rem),
+    radial-gradient(circle at 8% 30%, rgba(0, 184, 255, .12), transparent 25rem),
+    radial-gradient(circle at 95% 78%, rgba(35, 92, 173, .22), transparent 30rem),
+    #06162a;
+}
+
+:root[data-theme="dark"] main .rounded-2xl,
+:root[data-theme="dark"] main .rounded-3xl,
+:root[data-theme="dark"] header,
+:root[data-theme="dark"] aside,
+:root[data-theme="dark"] main input,
+:root[data-theme="dark"] main select,
+:root[data-theme="dark"] main textarea,
+:root[data-theme="dark"] .fixed.z-50 > div {
+  background: linear-gradient(135deg, rgba(22, 60, 97, .66), rgba(5, 25, 49, .78)) !important;
+  border-color: rgba(98, 165, 225, .25) !important;
+  box-shadow: 0 18px 42px rgba(1, 13, 30, .3), inset 0 1px 0 rgba(162, 211, 255, .14) !important;
+}
+
+:root[data-theme="dark"] header {
+  background: linear-gradient(110deg, rgba(8, 34, 63, .86), rgba(5, 24, 47, .72)) !important;
+  border-bottom-color: rgba(98, 165, 225, .24) !important;
+}
+
+:root[data-theme="dark"] table thead,
+:root[data-theme="dark"] table tr.bg-slate-950\/90,
+:root[data-theme="dark"] header .bg-slate-950,
+:root[data-theme="dark"] header .rounded-xl {
+  background: rgba(5, 25, 49, .74) !important;
+  border-color: rgba(98, 165, 225, .2) !important;
+}
+
+:root[data-theme="dark"] .text-cyan-300 { color: #6edbff !important; }
+:root[data-theme="dark"] .text-emerald-300 { color: #67e8b2 !important; }
+:root[data-theme="dark"] .text-amber-300 { color: #ffd27a !important; }
+:root[data-theme="dark"] .text-rose-300 { color: #ff8d9e !important; }
+
+:root[data-theme="dark"] main button.bg-indigo-600,
+:root[data-theme="dark"] main button[class*="bg-gradient"] {
+  background-image: linear-gradient(135deg, #1769d2, #347cf1 52%, #00a9d8) !important;
+}
+
+:root[data-theme="dark"] main .grid > .rounded-2xl:hover,
+:root[data-theme="dark"] main .rounded-3xl:hover {
+  border-color: rgba(76, 179, 255, .48) !important;
+  box-shadow: 0 20px 48px rgba(1, 16, 37, .42), 0 0 24px rgba(37, 139, 226, .08) !important;
+}

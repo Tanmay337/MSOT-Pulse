@@ -1,3 +1,4 @@
+App.jx
 import React, { useState, useMemo, useEffect } from "react";
 
 // ============================================================================
@@ -235,6 +236,7 @@ export default function App() {
   const [loginMode, setLoginMode] = useState("staff"); // staff | student
   const [loginInputId, setLoginInputId] = useState("admin@msot.org");
   const [loginInputPass, setLoginInputPass] = useState("");
+  const [loginCampus, setLoginCampus] = useState("JUJ");
   const [loginError, setLoginError] = useState("");
 
   // Password-Protected Profile Switch Modal State
@@ -264,6 +266,7 @@ export default function App() {
   // Visiting Faculty Honorarium Month State (Fix 2)
   const [selectedHonorariumMonth, setSelectedHonorariumMonth] = useState("2026-10");
   const [tdsRate, setTdsRate] = useState(10);
+  const [theme, setTheme] = useState(() => localStorage.getItem("msot-pulse-theme") || "dark");
 
   // Faculty 60s Logger State
   const [selectedSubjectId, setSelectedSubjectId] = useState("SUB-101");
@@ -303,6 +306,11 @@ export default function App() {
   const activeFacultyUser = currentUser?.name || "";
 
   useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("msot-pulse-theme", theme);
+  }, [theme]);
+  const toggleTheme = () => setTheme((current) => (current === "dark" ? "light" : "dark"));
+  useEffect(() => {
     if (!currentUser || activeTab !== "logger" || !stopwatchRunning) return;
     const timer = setInterval(() => {
       setStopwatchSec((s) => s + 1);
@@ -315,20 +323,38 @@ export default function App() {
   // ============================================================================
   const handleLoginSubmit = (e) => {
     e.preventDefault();
-    const matched = ACCOUNTS.find(
-      (a) => a.loginId.toLowerCase() === loginInputId.trim().toLowerCase() && a.password === loginInputPass
+    setLoginError("");
+
+    const matchedAccount = ACCOUNTS.find(
+      (acc) =>
+        acc.loginId.toLowerCase() === loginInputId.trim().toLowerCase() &&
+        acc.password === loginInputPass
     );
-    if (!matched) {
-      setLoginError("Invalid credentials! Please check your ID/Email and Password.");
+
+    if (!matchedAccount) {
+      setLoginError("Invalid Login ID or password.");
       return;
     }
-    setLoginError("");
-    setCurrentUser(matched);
-    setSelectedCampus(matched.campus || "ALL");
-    if (matched.role === "Student") setActiveTab("exams");
-    else if (matched.role === "Faculty") {
+
+    // Enforce that the user belongs to the selected campus (unless global Admin with "ALL")
+    if (matchedAccount.campus !== "ALL" && matchedAccount.campus !== loginCampus) {
+      setLoginError(
+        `Access Denied: Your account is registered to ${matchedAccount.campus}, not ${loginCampus}.`
+      );
+      return;
+    }
+
+    // Lock the dashboard to the authenticated campus
+    const targetCampus =
+      matchedAccount.campus === "ALL" ? loginCampus : matchedAccount.campus;
+
+    setCurrentUser(matchedAccount);
+    setSelectedCampus(targetCampus);
+
+    if (matchedAccount.role === "Student") setActiveTab("exams");
+    else if (matchedAccount.role === "Faculty") {
       setActiveTab("logger");
-      const ownSub = subjects.find((s) => s.faculty === matched.name);
+      const ownSub = subjects.find((s) => s.faculty === matchedAccount.name);
       if (ownSub) {
         setSelectedSubjectId(ownSub.id);
         if (ownSub.topics[0]) setSelectedTopicId(ownSub.topics[0].id);
@@ -339,9 +365,17 @@ export default function App() {
       setActiveTab("dashboard");
     }
     setAuditTrail((prev) => [
-      { id: Date.now(), time: "Just now", actor: matched.name, action: `Authenticated via Login Gate as ${matched.role} (${matched.loginId})` },
+      { id: Date.now(), time: "Just now", actor: matchedAccount.name, action: `Authenticated via Login Gate as ${matchedAccount.role} (${matchedAccount.loginId}) for campus ${targetCampus}` },
       ...prev,
     ]);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setLoginInputId("");
+    setLoginInputPass("");
+    setLoginError("");
+    setBurgerOpen(false);
   };
 
   const handleVerifiedProfileSwitch = (e) => {
@@ -799,19 +833,24 @@ export default function App() {
   // ============================================================================
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-[#060a12] text-slate-100 flex items-center justify-center p-4 font-sans">
+      <div data-theme={theme} className="min-h-screen bg-[#060a12] text-slate-100 flex items-center justify-center p-4 font-sans">
         <div className="max-w-md w-full rounded-3xl bg-slate-900/95 border border-slate-800 p-7 shadow-2xl space-y-6">
           {/* BRAND LOGO */}
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-indigo-500/20">
-              MP
+          <div className="flex items-start justify-between gap-3.5">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-400 via-indigo-500 to-emerald-400 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-indigo-500/20">
+                MP
+              </div>
+              <div>
+                <h1 className="text-xl font-extrabold tracking-tight text-white">MSOT Pulse</h1>
+                <p className="text-xs text-slate-400">
+                  Course Progression & Syllabus Pacing Portal
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-extrabold tracking-tight text-white">MSOT Pulse</h1>
-              <p className="text-xs text-slate-400">
-                Course Progression & Syllabus Pacing Portal
-              </p>
-            </div>
+            <button type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} className="h-10 px-3 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-slate-300 hover:text-white">
+              {theme === "dark" ? "☀ Light" : "☾ Dark"}
+            </button>
           </div>
 
           {/* STAFF VS STUDENT LOGIN MODE TABS */}
@@ -824,9 +863,8 @@ export default function App() {
                 setLoginInputPass("");
                 setLoginError("");
               }}
-              className={`py-2 rounded-lg transition ${
-                loginMode === "staff" ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
-              }`}
+              className={`py-2 rounded-lg transition ${loginMode === "staff" ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                }`}
             >
               🏛️ Staff (@msot.org)
             </button>
@@ -838,9 +876,8 @@ export default function App() {
                 setLoginInputPass("");
                 setLoginError("");
               }}
-              className={`py-2 rounded-lg transition ${
-                loginMode === "student" ? "bg-emerald-600 text-white shadow" : "text-slate-400 hover:text-white"
-              }`}
+              className={`py-2 rounded-lg transition ${loginMode === "student" ? "bg-emerald-600 text-white shadow" : "text-slate-400 hover:text-white"
+                }`}
             >
               🎓 Student ID Login
             </button>
@@ -848,6 +885,38 @@ export default function App() {
 
           {/* LOGIN FORM */}
           <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs sm:text-sm">
+            {/* Campus Selector on Login Page */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                Select Your Campus
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {["JUJ", "HI-Tech", "Ratnam", "RGIB"].map((campus) => (
+                  <button
+                    key={campus}
+                    type="button"
+                    onClick={() => {
+                      setLoginCampus(campus);
+                      setLoginError("");
+                    }}
+                    className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all ${loginCampus === campus
+                        ? "bg-indigo-600 text-white border-indigo-500 shadow-md"
+                        : "bg-slate-800/60 text-slate-300 border-slate-700 hover:bg-slate-800"
+                      }`}
+                  >
+                    {campus}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Display Login / Campus Mismatch Error */}
+            {loginError && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium">
+                {loginError}
+              </div>
+            )}
+
             <div>
               <label className="block text-xs text-slate-400 mb-1 font-semibold">
                 {loginMode === "staff" ? "MSOT Workspace Email" : "Student Roll / Registration ID"}
@@ -876,12 +945,6 @@ export default function App() {
               />
             </div>
 
-            {loginError && (
-              <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200 font-medium">
-                ⚠️ {loginError}
-              </div>
-            )}
-
             <button
               type="submit"
               className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:opacity-95 font-bold text-white shadow-lg shadow-indigo-600/20 transition"
@@ -904,6 +967,7 @@ export default function App() {
                     setLoginMode(acc.role === "Student" ? "student" : "staff");
                     setLoginInputId(acc.loginId);
                     setLoginInputPass(acc.password);
+                    setLoginCampus(acc.campus === "ALL" ? "JUJ" : acc.campus);
                     setLoginError("");
                   }}
                   className="text-left px-3 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 flex justify-between items-center transition"
@@ -943,7 +1007,7 @@ export default function App() {
   ].filter((item) => item.roles.includes(role));
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
+    <div data-theme={theme} className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
       {/* ==================== SLIM BURGER SLIDE-OVER DRAWER (w-56 / 224px) ==================== */}
       {burgerOpen && (
         <div className="fixed inset-0 z-50 flex">
@@ -1002,11 +1066,10 @@ export default function App() {
                         setStopwatchRunning(true);
                       }
                     }}
-                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl font-semibold transition ${
-                      activeTab === tab.id
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl font-semibold transition ${activeTab === tab.id
                         ? "bg-indigo-600 text-white shadow"
                         : "text-slate-400 hover:bg-slate-800/70 hover:text-white"
-                    }`}
+                      }`}
                   >
                     <span className="truncate">{tab.label}</span>
                     {tab.badge && (
@@ -1030,11 +1093,7 @@ export default function App() {
                 </button>
               )}
               <button
-                onClick={() => {
-                  setBurgerOpen(false);
-                  setCurrentUser(null);
-                  setLoginInputPass("");
-                }}
+                onClick={handleLogout}
                 className="w-full py-2 px-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-bold transition"
               >
                 🚪 Sign Out
@@ -1081,30 +1140,25 @@ export default function App() {
                     setStopwatchRunning(true);
                   }
                 }}
-                className={`px-2.5 py-1.5 rounded-lg font-semibold transition ${
-                  activeTab === tab.id ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
-                }`}
+                className={`px-2.5 py-1.5 rounded-lg font-semibold transition ${activeTab === tab.id ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                  }`}
               >
                 {tab.label}
               </button>
             ))}
           </div>
 
-          {/* Campus Filter & Password-Protected Profile Switch */}
+          {/* Locked Campus Badge & Password-Protected Profile Switch */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl px-2 py-1">
-              <span className="text-slate-400 mr-1.5 text-[11px]">Campus:</span>
-              {["ALL", "JUJ", "HI-Tech", "RGIB"].map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setSelectedCampus(c)}
-                  className={`px-2 py-0.5 rounded-lg font-bold text-[11px] transition ${
-                    selectedCampus === c ? "bg-cyan-500 text-slate-950" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
+            <div
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200 select-none"
+              title="Campus is locked to your account. Log out to switch accounts."
+            >
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              <span>Campus: {selectedCampus}</span>
+              <span className="text-slate-500 text-[10px] uppercase tracking-wider ml-1">
+                (Locked)
+              </span>
             </div>
 
             <button
@@ -1118,11 +1172,11 @@ export default function App() {
               🔐 Switch Profile
             </button>
 
+            <button type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} className="px-2.5 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold text-xs transition">
+              {theme === "dark" ? "☀" : "☾"}
+            </button>
             <button
-              onClick={() => {
-                setCurrentUser(null);
-                setLoginInputPass("");
-              }}
+              onClick={handleLogout}
               className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
             >
               Sign Out
@@ -1274,9 +1328,8 @@ export default function App() {
                         </td>
                         <td className="py-3.5 px-3 text-right font-mono font-bold">{s.bufferRatio.toFixed(2)}</td>
                         <td
-                          className={`py-3.5 px-3 text-right font-mono font-bold ${
-                            s.paceVsPlan < 0 ? "text-rose-400" : "text-emerald-400"
-                          }`}
+                          className={`py-3.5 px-3 text-right font-mono font-bold ${s.paceVsPlan < 0 ? "text-rose-400" : "text-emerald-400"
+                            }`}
                         >
                           {s.paceVsPlan >= 0 ? "+" : ""}
                           {s.paceVsPlan.toFixed(2)}h
@@ -1432,21 +1485,20 @@ export default function App() {
                                   prev.map((s) =>
                                     s.id === vf.id
                                       ? {
-                                          ...s,
-                                          honorariumStatus:
-                                            s.honorariumStatus === "Approved by CM"
-                                              ? "Pending Verification"
-                                              : "Approved by CM",
-                                        }
+                                        ...s,
+                                        honorariumStatus:
+                                          s.honorariumStatus === "Approved by CM"
+                                            ? "Pending Verification"
+                                            : "Approved by CM",
+                                      }
                                       : s
                                   )
                                 );
                               }}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                                vf.honorariumStatus === "Approved by CM"
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${vf.honorariumStatus === "Approved by CM"
                                   ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                                   : "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                              }`}
+                                }`}
                             >
                               {vf.honorariumStatus || "Pending"}
                             </button>
@@ -1473,11 +1525,10 @@ export default function App() {
                   <h2 className="text-xl font-bold">Mobile Session Logger (&lt;60s Target)</h2>
                 </div>
                 <div
-                  className={`px-3 py-1.5 rounded-xl font-mono font-bold text-sm border ${
-                    stopwatchSec < 60
+                  className={`px-3 py-1.5 rounded-xl font-mono font-bold text-sm border ${stopwatchSec < 60
                       ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                       : "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                  }`}
+                    }`}
                 >
                   ⏱️ {stopwatchSec}s / 60s SLA
                 </div>
@@ -1538,11 +1589,10 @@ export default function App() {
                           if (st === "Completed" || st === "Merged") setLogPct(100);
                           if (st === "Skipped" || st === "Cancelled") setLogPct(0);
                         }}
-                        className={`py-2 px-2 rounded-xl font-bold text-xs border transition ${
-                          logStatus === st
+                        className={`py-2 px-2 rounded-xl font-bold text-xs border transition ${logStatus === st
                             ? "bg-indigo-600 text-white border-indigo-400 shadow"
                             : "bg-slate-950 text-slate-400 border-slate-800 hover:text-white"
-                        }`}
+                          }`}
                       >
                         {st}
                       </button>
@@ -1789,11 +1839,10 @@ export default function App() {
                     <button
                       key={rule.id}
                       onClick={() => setSaturdayRule(rule.id)}
-                      className={`flex-1 py-2 px-2 rounded-xl font-bold border transition ${
-                        saturdayRule === rule.id
+                      className={`flex-1 py-2 px-2 rounded-xl font-bold border transition ${saturdayRule === rule.id
                           ? "bg-indigo-600 text-white border-indigo-400"
                           : "bg-slate-950 text-slate-400 border-slate-800"
-                      }`}
+                        }`}
                     >
                       {rule.label}
                     </button>
