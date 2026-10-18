@@ -101,7 +101,7 @@ The platform defines progress using planned hours rather than a simple topic cou
 
 ## Sample Data and Campus Scope
 
-The sample data is configured for **JUJ, HI-Tech, and RGIB**. Ratnam campus is included in data structures for future multi-campus expansion.
+The sample data is configured for **JUJ, HI-Tech, and RGIB**.
 
 ## Challenge
 

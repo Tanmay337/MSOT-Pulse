@@ -187,8 +187,8 @@ const INITIAL_SUBJECTS = [
     honorariumStatus: "Approved by CM",
     targetFinishDate: "2026-11-22",
     timetableSlots: [
-      { day: 2, dayName: "Tue", start: "11:00", end: "13:00", room: "RT-Lab-1" },
-      { day: 5, dayName: "Fri", start: "15:00", end: "17:00", room: "RT-Lab-1" },
+      { day: 2, dayName: "Tue", start: "11:00", end: "13:00", room: "JUJ-Lab-1" },
+      { day: 5, dayName: "Fri", start: "15:00", end: "17:00", room: "JUJ-Lab-1" },
     ],
     weeklyScheduleHours: { 2: 2.0, 5: 2.0 },
     topics: [
@@ -602,7 +602,7 @@ export default function App() {
     setSubjects(generated);
     setBurgerOpen(false);
     setAuditTrail((prev) => [
-      { id: Date.now(), time: "Just now", actor: currentUser.name, action: `Bulk imported ${generated.length} subjects across 4 campuses` },
+      { id: Date.now(), time: "Just now", actor: currentUser.name, action: `Bulk imported ${generated.length} subjects across 3 campuses` },
       ...prev,
     ]);
   };
@@ -999,8 +999,8 @@ export default function App() {
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
                 Select Your Campus
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {["JUJ", "HI-Tech", "Ratnam", "RGIB"].map((campus) => (
+              <div className="grid grid-cols-3 gap-2">
+                {["JUJ", "HI-Tech", "RGIB"].map((campus) => (
                   <button
                     key={campus}
                     type="button"
@@ -1100,6 +1100,9 @@ export default function App() {
   const uniRollup = getWorstTrackStatus("University Track");
   const activeLoggerSubject = computedSubjects.find((s) => s.id === selectedSubjectId) || computedSubjects[0];
   const isLoggerPermissionBlocked = role === "Faculty" && activeLoggerSubject.faculty !== activeFacultyUser;
+  const auditedSubject = auditModalSubject
+    ? computedSubjects.find((s) => s.id === auditModalSubject.id) || auditModalSubject
+    : null;
 
   const visitingSubjects = computedSubjects.filter(
     (s) => s.isVisiting && (selectedCampus === "ALL" || s.campus === selectedCampus)
@@ -1198,7 +1201,7 @@ export default function App() {
                   onClick={handleLoadFullSemesterCSV}
                   className="w-full py-2 px-2.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 font-bold transition truncate"
                 >
-                  📂 Import 4-Campus CSV
+                  📂 Import 3-Campus CSV
                 </button>
               )}
               <button
@@ -1784,7 +1787,7 @@ export default function App() {
 
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:opacity-95 font-bold text-sm shadow-lg"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:opacity-95 font-bold text-white text-sm shadow-lg"
                 >
                   ✅ Confirm & Sync Session Log ({stopwatchSec}s)
                 </button>
@@ -1811,14 +1814,14 @@ export default function App() {
                       "In progress 70% completed on BCNF & 3NF today, leftover carried to T4, homework assigned."
                     )
                   }
-                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold"
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
                 >
                   🎙️ Load Sample Note
                 </button>
                 <button
                   type="button"
                   onClick={handleWhatsappParse}
-                  className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold"
+                  className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
                 >
                   ✨ Parse into Form
                 </button>
@@ -1827,172 +1830,97 @@ export default function App() {
           </div>
         )}
 
-        {/* ==================== TAB 4: TIMETABLE & SYLLABUS BUILDER ==================== */}
+        {/* ==================== TAB 4: MINIMAL TIMETABLE & SYLLABUS ==================== */}
         {activeTab === "timetable" && (
-          <div className="space-y-6">
-            {/* TOP CONTROLS: 7-DAY VS 14-DAY TOGGLE & PERMISSION BADGE */}
-            <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold uppercase text-cyan-400">
-                    Campus Schedule ({selectedCampus})
-                  </span>
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                      canEditTimetable
-                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                        : "bg-slate-800 text-slate-300 border-slate-700"
-                    }`}
-                  >
-                    {canEditTimetable ? "✏️ Faculty Edit Mode" : "👁️ Read-Only View"}
-                  </span>
-                </div>
-                <h2 className="text-lg font-extrabold mt-1">
-                  🗓️ {timetableSpanDays}-Day Rolling Class Timetable
-                </h2>
-                <p className="text-xs text-slate-400">
-                  {canEditTimetable
-                    ? "You can add new slots below or inline-edit/remove slots for your assigned subjects."
-                    : "View-only schedule. Only assigned Faculty members can modify class slots."}
-                </p>
+          <div className="space-y-4">
+            {/* MINIMAL HEADER BAR */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+              <div className="flex items-baseline gap-2.5">
+                <h2 className="text-base font-bold tracking-tight text-white">Timetable</h2>
+                <span className="text-xs text-slate-400">
+                  {selectedCampus} · {timetableSpanDays}d view · {canEditTimetable ? "Faculty edit" : "Read-only"}
+                </span>
               </div>
 
-              <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
+              <div className="inline-flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
                 <button
                   type="button"
                   onClick={() => setTimetableSpanDays(7)}
-                  className={`px-3 py-1.5 rounded-lg transition ${
-                    timetableSpanDays === 7 ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                  className={`px-3 py-1 rounded-lg transition ${
+                    timetableSpanDays === 7 ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  7 Days (1 Week)
+                  7d
                 </button>
                 <button
                   type="button"
                   onClick={() => setTimetableSpanDays(14)}
-                  className={`px-3 py-1.5 rounded-lg transition ${
-                    timetableSpanDays === 14 ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                  className={`px-3 py-1 rounded-lg transition ${
+                    timetableSpanDays === 14 ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  14 Days (2 Weeks)
+                  14d
                 </button>
               </div>
             </div>
 
-            {/* 7-DAY / 14-DAY CALENDAR GRID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
-              {upcomingTimetableDays.map((day) => (
-                <div
-                  key={day.date}
-                  className={`rounded-2xl border p-3 flex flex-col justify-between min-h-[190px] ${
-                    day.holidayName || day.isSunday || day.isNonWorkingSat
-                      ? "bg-slate-950/60 border-slate-800/60"
-                      : "bg-slate-900 border-slate-800"
-                  }`}
-                >
-                  <div>
-                    {/* Day Header */}
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                      <span className="text-xs font-extrabold text-white">{day.dayLabel}</span>
-                      <span className="text-[10px] font-mono text-slate-400">{day.date.slice(5)}</span>
-                    </div>
+            {/* MINIMAL 7-DAY / 14-DAY GRID */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
+              {upcomingTimetableDays.map((day) => {
+                const isOff = Boolean(day.holidayName) || day.isSunday || day.isNonWorkingSat;
+                return (
+                  <div
+                    key={day.date}
+                    className={`rounded-2xl border p-3 flex flex-col justify-between min-h-[140px] ${
+                      isOff
+                        ? "bg-slate-950/60 border-slate-800/60"
+                        : "bg-slate-900 border-slate-800"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                        <span className="text-xs font-semibold text-white">{day.dayLabel}</span>
+                        <span className="text-[10px] font-mono text-slate-400">{day.date.slice(5)}</span>
+                      </div>
 
-                    {/* Off-Day Badges or Class Slots */}
-                    {day.holidayName ? (
-                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold">
-                        🎉 Holiday: {day.holidayName}
-                      </div>
-                    ) : day.isSunday ? (
-                      <div className="p-2.5 rounded-xl bg-slate-950 text-slate-500 text-xs font-medium text-center">
-                        Sunday Off
-                      </div>
-                    ) : day.isNonWorkingSat ? (
-                      <div className="p-2.5 rounded-xl bg-slate-950 text-slate-500 text-xs font-medium text-center">
-                        Non-Working Saturday ({saturdayRule})
-                      </div>
-                    ) : day.slots.length === 0 ? (
-                      <div className="p-2.5 rounded-xl bg-slate-950/50 text-slate-500 text-xs text-center">
-                        No classes scheduled
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {day.slots.map((slot) => {
-                          const isEditingThis =
-                            editingSlot &&
-                            editingSlot.subId === slot.subId &&
-                            editingSlot.idx === slot.slotIdx;
+                      {day.holidayName ? (
+                        <p className="py-4 text-[11px] text-rose-300 font-medium text-center">
+                          {day.holidayName}
+                        </p>
+                      ) : day.isSunday ? (
+                        <p className="py-4 text-[11px] text-slate-400 text-center">Sunday</p>
+                      ) : day.isNonWorkingSat ? (
+                        <p className="py-4 text-[11px] text-slate-400 text-center">Saturday Off</p>
+                      ) : day.slots.length === 0 ? (
+                        <p className="py-4 text-[11px] text-slate-400 text-center">—</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {day.slots.map((slot) => {
+                            const isEditingThis =
+                              editingSlot &&
+                              editingSlot.subId === slot.subId &&
+                              editingSlot.idx === slot.slotIdx;
 
-                          return (
-                            <div
-                              key={`${day.date}-${slot.subId}-${slot.slotIdx}`}
-                              className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1"
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="font-bold text-cyan-300">{slot.code}</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 font-mono">
-                                  {slot.room}
-                                </span>
-                              </div>
-                              <p className="text-[11px] font-semibold text-white leading-snug">
-                                {slot.subjectName}
-                              </p>
-                              <p className="text-[10px] text-slate-400 truncate">{slot.faculty}</p>
-
-                              {isEditingThis ? (
-                                <div className="pt-1.5 space-y-1.5 border-t border-slate-800">
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      type="time"
-                                      value={editingSlot.start}
-                                      onChange={(e) =>
-                                        setEditingSlot({ ...editingSlot, start: e.target.value })
-                                      }
-                                      className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
-                                    />
-                                    <input
-                                      type="time"
-                                      value={editingSlot.end}
-                                      onChange={(e) =>
-                                        setEditingSlot({ ...editingSlot, end: e.target.value })
-                                      }
-                                      className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
-                                    />
-                                  </div>
-                                  <input
-                                    type="text"
-                                    value={editingSlot.room}
-                                    onChange={(e) =>
-                                      setEditingSlot({ ...editingSlot, room: e.target.value })
-                                    }
-                                    placeholder="Room"
-                                    className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px]"
-                                  />
-                                  <div className="flex gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveSlotEdit(slot.subId, slot.slotIdx)}
-                                      className="flex-1 py-1 rounded bg-emerald-600 text-white font-bold text-[10px]"
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setEditingSlot(null)}
-                                      className="flex-1 py-1 rounded bg-slate-800 text-slate-300 text-[10px]"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
-                                  <span className="font-mono text-[11px] text-emerald-300 font-semibold">
-                                    {slot.start} – {slot.end}
+                            return (
+                              <div
+                                key={`${day.date}-${slot.subId}-${slot.slotIdx}`}
+                                className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1"
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="font-mono text-[11px] text-cyan-300 font-semibold">
+                                    {slot.start}–{slot.end}
                                   </span>
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    {slot.room}
+                                  </span>
+                                </div>
 
-                                  {/* Faculty-Only Inline Edit & Delete Buttons */}
-                                  {slot.canModifyThisSlot && (
-                                    <div className="flex items-center gap-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <p className="text-[11px] font-semibold text-white truncate" title={slot.subjectName}>
+                                    {slot.code} · {slot.subjectName}
+                                  </p>
+                                  {slot.canModifyThisSlot && !isEditingThis && (
+                                    <div className="flex items-center gap-1 shrink-0">
                                       <button
                                         type="button"
                                         onClick={() =>
@@ -2004,48 +1932,94 @@ export default function App() {
                                             room: slot.room,
                                           })
                                         }
-                                        className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[10px] font-bold"
-                                        title="Edit slot time or room"
+                                        className="px-1 text-slate-400 hover:text-amber-300 text-[10px]"
+                                        title="Edit slot"
                                       >
                                         ✎
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() =>
-                                          handleDeleteTimetableSlot(slot.subId, slot.slotIdx)
-                                        }
-                                        className="px-1.5 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 text-[10px] font-bold"
-                                        title="Delete slot"
+                                        onClick={() => handleDeleteTimetableSlot(slot.subId, slot.slotIdx)}
+                                        className="px-1 text-slate-400 hover:text-rose-300 text-[10px]"
+                                        title="Remove slot"
                                       >
                                         ✕
                                       </button>
                                     </div>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+
+                                {isEditingThis && (
+                                  <div className="pt-1.5 space-y-1.5 border-t border-slate-800">
+                                    <div className="grid grid-cols-2 gap-1">
+                                      <input
+                                        type="time"
+                                        value={editingSlot.start}
+                                        onChange={(e) =>
+                                          setEditingSlot({ ...editingSlot, start: e.target.value })
+                                        }
+                                        className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
+                                      />
+                                      <input
+                                        type="time"
+                                        value={editingSlot.end}
+                                        onChange={(e) =>
+                                          setEditingSlot({ ...editingSlot, end: e.target.value })
+                                        }
+                                        className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
+                                      />
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={editingSlot.room}
+                                      onChange={(e) =>
+                                        setEditingSlot({ ...editingSlot, room: e.target.value })
+                                      }
+                                      placeholder="Room"
+                                      className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px]"
+                                    />
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveSlotEdit(slot.subId, slot.slotIdx)}
+                                        className="flex-1 py-1 rounded bg-emerald-600 text-white font-semibold text-[10px]"
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingSlot(null)}
+                                        className="flex-1 py-1 rounded bg-slate-800 text-slate-300 text-[10px]"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* FACULTY-ONLY EDITING FORMS (HIDDEN FOR STUDENTS) */}
+            {/* MINIMAL FACULTY EDIT BARS */}
             {canEditTimetable && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <form onSubmit={handleAddTimetableSlot} className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
-                  <span className="text-[11px] font-bold uppercase text-cyan-400">
-                    Faculty Schedule Editor
-                  </span>
-                  <h3 className="font-bold text-base">🕒 Add Weekly Timetable Slot (50m to 2h)</h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <form onSubmit={handleAddTimetableSlot} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white">Add Class Slot</span>
+                    <span className="text-[11px] font-mono text-cyan-300">+{computeSlotHours(ttStart, ttEnd)}h/wk</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     <select
                       value={ttSubjectId}
                       onChange={(e) => setTtSubjectId(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 font-semibold col-span-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium sm:col-span-2"
                     >
                       {visibleSubjects
                         .filter((s) => s.faculty === activeFacultyUser)
@@ -2058,7 +2032,7 @@ export default function App() {
                     <select
                       value={ttDay}
                       onChange={(e) => setTtDay(Number(e.target.value))}
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 font-semibold"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 font-medium"
                     >
                       {Object.entries(DAY_NAMES).map(([k, v]) => (
                         <option key={k} value={k}>
@@ -2071,70 +2045,69 @@ export default function App() {
                       value={ttRoom}
                       onChange={(e) => setTtRoom(e.target.value)}
                       placeholder="Room"
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
                     />
+                    <button type="submit" className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+                      + Add
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <input
                       type="time"
                       value={ttStart}
                       onChange={(e) => setTtStart(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
                     />
-                    <span>to</span>
                     <input
                       type="time"
                       value={ttEnd}
                       onChange={(e) => setTtEnd(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
                     />
-                    <button type="submit" className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold">
-                      + Add Slot (+{computeSlotHours(ttStart, ttEnd)}h)
-                    </button>
                   </div>
                 </form>
 
-                <form onSubmit={handleAddLessonTopic} className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
-                  <span className="text-[11px] font-bold uppercase text-emerald-400">
-                    Syllabus & Exam Scope Upload
-                  </span>
-                  <h3 className="font-bold text-base">📚 Upload Lesson Plan Topic</h3>
+                <form onSubmit={handleAddLessonTopic} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white">Add Syllabus Topic</span>
+                    <span className="text-[11px] text-slate-400">Auto-computes planned date</span>
+                  </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <input
                       type="text"
                       value={newTopicUnit}
                       onChange={(e) => setNewTopicUnit(e.target.value)}
                       placeholder="Unit"
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
                     />
                     <input
                       type="text"
                       value={newTopicTitle}
                       onChange={(e) => setNewTopicTitle(e.target.value)}
                       placeholder="Topic Title"
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 col-span-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:col-span-2"
                     />
                     <input
                       type="number"
                       step="0.5"
                       value={newTopicHours}
                       onChange={(e) => setNewTopicHours(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
                     />
                   </div>
                   <div className="flex gap-2">
                     <select
                       value={newTopicScope}
                       onChange={(e) => setNewTopicScope(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-semibold"
+                      className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium flex-1"
                     >
-                      <option value="Sessionals">Scope: Sessionals</option>
-                      <option value="Mid-Term">Scope: Mid-Term</option>
-                      <option value="PUT">Scope: PUT</option>
-                      <option value="End-Term">Scope: End-Term</option>
+                      <option value="Sessionals">Sessionals</option>
+                      <option value="Mid-Term">Mid-Term</option>
+                      <option value="PUT">PUT</option>
+                      <option value="End-Term">End-Term</option>
                     </select>
-                    <button type="submit" className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold">
-                      + Add Topic & Compute Planned Date
+                    <button type="submit" className="py-1.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">
+                      + Add Topic
                     </button>
                   </div>
                 </form>
@@ -2248,7 +2221,7 @@ export default function App() {
               <h2 className="text-lg font-bold">🎯 Exam Readiness & Read-Only Student Batch View</h2>
               <button
                 onClick={exportCalendarICS}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-bold"
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
               >
                 📅 Sync Exam Dates (.ics)
               </button>
@@ -2304,6 +2277,195 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* ==================== MATHEMATICAL & SPREADSHEET FORMULA AUDIT MODAL ==================== */}
+      {auditedSubject && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setAuditModalSubject(null)}
+        >
+          <div
+            className="max-w-3xl w-full max-h-[88vh] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-700 p-6 space-y-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-bold text-cyan-300">{auditedSubject.code}</span>
+                  <span className={statusBadge(auditedSubject.status)}>{auditedSubject.status}</span>
+                </div>
+                <h2 className="text-lg font-extrabold text-white mt-1">
+                  🔍 Audit Math — {auditedSubject.name}
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {auditedSubject.campus} • {auditedSubject.track} • {auditedSubject.faculty} • Target Finish: {auditedSubject.targetFinishDate}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAuditModalSubject(null)}
+                aria-label="Close audit math modal"
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 6 FORMULA VERIFICATION CARDS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">1. Scope Hours</span>
+                <p className="text-base font-mono font-extrabold text-white">
+                  {auditedSubject.hoursInScope.toFixed(2)}h
+                </p>
+                <p className="text-[11px] font-mono text-cyan-300">
+                  =SUMIF(status, &quot;!=Skipped&quot;, planned_hrs)
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {auditedSubject.topics.filter((t) => t.status !== "Skipped").length} active topics ({auditedSubject.topics.filter((t) => t.status === "Skipped").length} skipped)
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">2. Covered Hours</span>
+                <p className="text-base font-mono font-extrabold text-cyan-300">
+                  {auditedSubject.coveredHours.toFixed(2)}h ({auditedSubject.coveragePct.toFixed(2)}%)
+                </p>
+                <p className="text-[11px] font-mono text-cyan-300">
+                  =SUM(planned_hrs × pct / 100)
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {auditedSubject.coveredHours.toFixed(2)}h ÷ {auditedSubject.hoursInScope.toFixed(2)}h scope
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">3. Remaining Hours</span>
+                <p className="text-base font-mono font-extrabold text-white">
+                  {auditedSubject.remainingHours.toFixed(2)}h
+                </p>
+                <p className="text-[11px] font-mono text-cyan-300">
+                  =MAX(0, Scope - Covered)
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {auditedSubject.hoursInScope.toFixed(2)}h − {auditedSubject.coveredHours.toFixed(2)}h
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">4. Should Be Covered ({todayDate})</span>
+                <p className="text-base font-mono font-extrabold text-white">
+                  {auditedSubject.shouldBeCoveredByToday.toFixed(2)}h
+                </p>
+                <p className="text-[11px] font-mono text-cyan-300">
+                  =MIN(Scope, CalendarWalk(Start..Today))
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Walks {semesterStart} → {todayDate} ({saturdayRule} Sat)
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">5. Available Hours</span>
+                <p className="text-base font-mono font-extrabold text-emerald-300">
+                  {auditedSubject.availableHours.toFixed(2)}h
+                </p>
+                <p className="text-[11px] font-mono text-cyan-300">
+                  =CalendarWalk(Today+1..Deadline) + Bonus
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Until {auditedSubject.targetFinishDate} (+{remedialBonusHours}h remedial)
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400">6. Buffer Ratio & Pace</span>
+                <p className="text-base font-mono font-extrabold text-white">
+                  {auditedSubject.bufferRatio.toFixed(2)}x • {auditedSubject.paceVsPlan >= 0 ? "+" : ""}{auditedSubject.paceVsPlan.toFixed(2)}h
+                </p>
+                <p className="text-[11px] font-mono text-cyan-300">
+                  =Available ({auditedSubject.availableHours.toFixed(2)}h) ÷ Remaining ({auditedSubject.remainingHours.toFixed(2)}h)
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Thresholds: ≥{thresholds.onTrack} ON TRACK, ≥{thresholds.tight.toFixed(2)} TIGHT
+                </p>
+              </div>
+            </div>
+
+            {/* TOPIC-LEVEL WEIGHTED AUDIT TABLE */}
+            <div className="rounded-xl border border-slate-800 overflow-hidden">
+              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
+                <span className="font-bold text-white">Topic-Level Weighted Hours Verification</span>
+                <span className="text-slate-400 font-mono">
+                  Weekly Schedule: {Object.entries(auditedSubject.weeklyScheduleHours || {}).map(([d, h]) => `${DAY_NAMES[d]}:${h}h`).join(", ")}
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-950/90 text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-800">
+                      <th className="py-2.5 px-3">Topic</th>
+                      <th className="py-2.5 px-2">Status</th>
+                      <th className="py-2.5 px-2 text-right">Planned</th>
+                      <th className="py-2.5 px-2 text-right">% Done</th>
+                      <th className="py-2.5 px-2 text-right">Covered Hrs</th>
+                      <th className="py-2.5 px-3 text-right">Planned Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {auditedSubject.topics.map((t) => {
+                      const isSkipped = t.status === "Skipped";
+                      const weightedCovered =
+                        t.status === "Completed" || t.status === "Merged"
+                          ? t.plannedHours
+                          : t.status === "In Progress"
+                          ? t.plannedHours * (t.pctComplete / 100)
+                          : 0;
+                      return (
+                        <tr key={t.id} className={isSkipped ? "opacity-60" : ""}>
+                          <td className="py-2 px-3 font-medium text-white">
+                            {t.unit}: {t.title}
+                          </td>
+                          <td className="py-2 px-2 text-slate-300">{t.status}</td>
+                          <td className="py-2 px-2 text-right font-mono">
+                            {isSkipped ? "0.00h (Skipped)" : `${t.plannedHours.toFixed(2)}h`}
+                          </td>
+                          <td className="py-2 px-2 text-right font-mono">{t.pctComplete}%</td>
+                          <td className="py-2 px-2 text-right font-mono font-bold text-cyan-300">
+                            {weightedCovered.toFixed(2)}h
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-400">
+                            {t.plannedDate}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-950 border-t border-slate-800 font-bold text-white">
+                      <td className="py-2.5 px-3" colSpan={2}>Total Verified (2-Decimal Parity)</td>
+                      <td className="py-2.5 px-2 text-right font-mono">{auditedSubject.hoursInScope.toFixed(2)}h</td>
+                      <td className="py-2.5 px-2 text-right font-mono">{auditedSubject.coveragePct.toFixed(2)}%</td>
+                      <td className="py-2.5 px-2 text-right font-mono text-cyan-300">{auditedSubject.coveredHours.toFixed(2)}h</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-emerald-300">Rem: {auditedSubject.remainingHours.toFixed(2)}h</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAuditModalSubject(null)}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ==================== PASSWORD-PROTECTED PROFILE SWITCH MODAL ==================== */}
       {switchModalOpen && (
