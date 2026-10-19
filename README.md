@@ -2,7 +2,7 @@
 
 Built for the **MSOT Course Progression Challenge (Problem 3)**. Tracks syllabus delivery across **HI-Tech, RGIB, and JUJ** for both the **Mirai Track** and **University Track** with 2-decimal mathematical parity, automatic timetable hour derivation, calendar-walking date shifts, strict RBAC faculty isolation, and `<60s` mobile faculty session logging.
 
-![MSOT Pulse Live Platform Preview](./preview.png)
+
 
 ## 📋 Submission Checklist Included in This Repo
 - [x] **One-Command Setup:** `docker-compose.yml` + `Dockerfile` + `schema.sql`
