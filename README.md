@@ -1,4 +1,4 @@
-# MSOT Pulse v2.0 — Live Course Progression & Early-Warning Platform (Problem 3)
+# MSOT Pulse — Live Course Progression & Early-Warning Platform (Problem 3)
 
 Built for the **MSOT Course Progression Challenge (Problem 3)**. Tracks syllabus delivery across **HI-Tech, RGIB, and JUJ** for both the **Mirai Track** and **University Track** with 2-decimal mathematical parity, automatic timetable hour derivation, calendar-walking date shifts, strict RBAC faculty isolation, and `<60s` mobile faculty session logging.
 
@@ -87,6 +87,86 @@ npm run build
 - [`schema.sql`](./schema.sql) — proposed relational database schema with indices.
 - [`tests/loadtest.js`](./tests/loadtest.js) — load-test script.
 - [`data/sample_semester_4_campuses.csv`](./data/sample_semester_4_campuses.csv) — 4-campus sample semester dataset.
+
+
+## 🌟 Key Features
+
+### 1. Course Progress & Syllabus Delivery Tracker
+- **Real-Time Pacing Engine:** Accurate 2-decimal tracking of Planned Hours, Delivered Hours, Remaining Hours, and Coverage Percentage.
+- **Automated Buffer Ratio & Health Status:**
+  - 🟢 **ON TRACK** (`Buffer Ratio ≥ 1.15`): Pacing ahead of calendar.
+  - 🟡 **TIGHT** (`1.00 ≤ Buffer Ratio < 1.15`): Low margin for cancellations or holidays.
+  - 🔴 **DANGER** (`Buffer Ratio < 1.00`): Projected to miss the exam syllabus cutoff.
+  - 🔵 **COMPLETE** (`100% Coverage`): Curriculum delivery concluded.
+- **Worst-Subject Roll-Up:** Executive summary surfacing the highest-risk subjects across campuses for immediate academic intervention.
+- **Granular Filtering & Search:** Filter by Campus (HI-Tech, RGIB, JUJ, Ratnam), Track (Mirai Track vs. University Track), Semester, and Search by Subject or Faculty.
+- **Interactive Formula & Audit Modal:** Transparent math breakdown showing exact buffer ratios, available teaching hours, and pace-vs-plan calculations.
+
+---
+
+### 2. Ultra-Fast Session Logging (<60s SLA)
+- **Fast Session Logging:** Designed for faculty to record completed lectures, attendance, and topics covered in under 60 seconds on mobile or desktop.
+- **Topic Level Tracking:** Mark topics as Complete or In-Progress with percentage completion and leftover work notes.
+- **Live SLA Stopwatch:** Real-time on-screen counter confirming logs are submitted within the 60-second target.
+- **AI-Assisted Logging (WhatsApp / Audio Note Parser):** One-click parser that extracts subject, session date, topics covered, and attendance notes from unstructured text or voice transcripts.
+
+---
+
+### 3. Rolling Timetable & Faculty Scheduling
+- **7-Day & 14-Day Rolling Views:** Interactive daily schedule displaying morning, afternoon, and evening slots with room allocations and topic plans.
+- **1-Click Faculty Assignment & Slot Editing:** Campus Managers and Lead Faculty can edit slots, adjust timings, and assign/reassign faculty directly from an integrated selector.
+- **Role-Gated Access:** Faculty can update their assigned session slots; Students receive an uncluttered, read-only schedule.
+
+---
+
+### 4. Self-Registration & Campus Manager Approval System
+- **Login Screen Self-Registration:** Prospective Students, Regular Faculty, Visiting Faculty, and Program Managers can request an account.
+- **Campus-Scoped Approval Queue:** Campus Managers review registration requests filtered strictly for their respective campus.
+- **One-Click Authorization:** Campus Managers can review registrant details (Role, Campus, Batch, Email/ID) and grant permissions or reject requests with immediate activation.
+
+---
+
+### 5. Visiting Faculty Lecture & Honorarium Management
+- **Planned vs. Delivered Tracking:** Separate accounting for Planned vs. Completed Lectures and Planned vs. Actual Teaching Hours.
+- **Audit-Linked Session Delivery Logging:** Session logs capture exact dates, subjects, faculty names, durations, and completion statuses (replacing disconnected "+1" increment buttons).
+- **Configurable Honorarium Rates:** Supports **Per-Hour** or **Per-Session** compensation models customizable per faculty or course.
+- **Live Financial Computation:** Real-time calculations of Planned Budget vs. Approved Earned Honorarium with status tracking (**Pending Review**, **Approved**, **Disbursed**).
+- **Exportable Payout Report (CSV):** Downloadable payout summary with full session breakdowns, rates, and approval stamps for finance and audit teams.
+
+---
+
+### 6. Academic Calendar & Holiday Management Engine
+- **Timezone-Safe Date Engine:** Fully fixed date conversions preventing 1-day timezone backward shifts (e.g., in IST GMT+5:30).
+- **Campus-Specific Holiday Scoping:** Schedule holidays across **All Campuses** or scope them to a specific campus (`JUJ`, `RATNAM`, `HITECH`).
+- **Curriculum Pacing Impact Preview:** Live indicator displaying the exact number of class slots and subjects affected by upcoming holidays.
+- **Interactive Holiday Manager:** Add and delete holidays with date conflict validation, reason logging, and automated schedule adjustments.
+- **Decoupled Session Cancellations:** Cancelling an individual class session records an audit entry without injecting false institution-wide holidays.
+
+---
+
+### 7. Exam Readiness & Milestone Tracking
+- **Milestone Timeline:** Maps curriculum pacing against **Sessionals**, **Mid-Term**, **Pre-University Tests (PUT)**, and **Final University Exams**.
+- **Early-Warning Horizon:** Alerts leadership when a subject's current pace will fail to cover necessary exam modules by scheduled examination dates.
+
+---
+
+### 8. Role-Based Access Control (RBAC) & Multi-Campus Security
+- **Strict Role Permissions:** Distinct views and capabilities for **Academic Leadership / Super Admin**, **Campus Manager**, **Faculty**, **Visiting Faculty**, and **Students**.
+- **Multi-Campus Isolation:** Campus Managers and Faculty only access data, classes, and approval queues belonging to their campus.
+- **Resilient Student Onboarding:** Dynamic batch mapping (`CAMPUS_BATCHES`) guarantees that newly registered student accounts immediately populate their timetable, syllabus, and course trackers with zero blank screens.
+
+---
+
+### 9. Missed-Log Reminders & 48-Hour Escalation Tracker
+- **Automated Log Monitoring:** Flags classes that concluded more than 24 hours ago without a recorded session log.
+- **48-Hour Escalation Tracker:** Automatically escalates unlogged sessions exceeding 48 hours to Campus Managers and Leadership for resolution.
+
+---
+
+### 10. Data Import & Audit Trail
+- **CSV Bulk Import:** Import full semester schedules, course breakdowns, and topic syllabi across multiple campuses.
+- **Tamper-Evident Audit History:** Comprehensive event log tracking every session confirmation, timetable edit, holiday addition, and honorarium approval.
+
 
 ## Core Progress Metrics
 
