@@ -602,6 +602,7 @@ export default function App() {
   const [newExamDate, setNewExamDate] = useState("2026-11-05");
   const [newExamScope, setNewExamScope] = useState("Mid-Term");
   const [remedialBonusHours, setRemedialBonusHours] = useState(0);
+  const [remedialTargetSubjectId, setRemedialTargetSubjectId] = useState("auto"); // "auto" (tightest course with low buffer) | "all-tight" | specific subject id
 
   // Visiting Faculty Honorarium Month & Deduction State (Configurable Institutional TDS)
   const [selectedHonorariumMonth, setSelectedHonorariumMonth] = useState("2026-10");
@@ -662,6 +663,17 @@ export default function App() {
   const [editingSlot, setEditingSlot] = useState(null); // { subId, idx, start, end, room }
 
   const [auditModalSubject, setAuditModalSubject] = useState(null);
+  // Dedicated Syllabus Manager & Importer State
+  const [timetableSubView, setTimetableSubView] = useState("schedule"); // "schedule" | "syllabus"
+  const [selectedSyllabusSubId, setSelectedSyllabusSubId] = useState("");
+  const [showAddTopicForm, setShowAddTopicForm] = useState(false);
+  const [editingTopicId, setEditingTopicId] = useState(null);
+  const [editingTopicData, setEditingTopicData] = useState({});
+  const [syllabusImportModalOpen, setSyllabusImportModalOpen] = useState(false);
+  const [syllabusImportMode, setSyllabusImportMode] = useState("paste"); // "paste" | "file"
+  const [syllabusImportText, setSyllabusImportText] = useState("");
+  const [syllabusImportAction, setSyllabusImportAction] = useState("replace"); // "replace" | "append"
+  const [syllabusImportFeedback, setSyllabusImportFeedback] = useState(null);
   const [auditTrail, setAuditTrail] = useState([
     { id: 1, time: "2026-10-15 09:10", actor: "System Cron", action: "48h Escalation sent to Campus Manager for unlogged CS-309 session" },
     { id: 2, time: "2026-10-14 16:42", actor: "Prof. R. Sharma", action: "Logged CS-301 T3 (In Progress, 60% complete, BCNF carried forward to T4) in 19s" },
@@ -691,6 +703,7 @@ export default function App() {
   const canManageTimetableAndFaculty = isAdmin || isCampusManager;
   const canManageCalendar = isAdmin || isCampusManager;
   const canUploadLessonPlan = isAdmin || isFaculty;
+  const canManageSyllabus = isAdmin || isCampusManager || isFaculty;
   const canEditTimetable = canManageTimetableAndFaculty;
   const canApproveHonorarium = (vf) => {
     if (isAdmin) return true;
@@ -952,7 +965,8 @@ export default function App() {
   // DETERMINISTIC CALENDAR-WALKING & 2-DECIMAL MATHEMATICAL ENGINE
   // ============================================================================
   const computedSubjects = useMemo(() => {
-    return subjects.map((sub) => {
+    // 1. Calculate baseline schedule metrics (without bonus hours) for all subjects
+    const baseSubjects = subjects.map((sub) => {
       // Holidays applicable to this subject: either institution-wide (ALL/undefined) or matching this subject's campus
       const subHolidaySet = new Set(
         holidays
@@ -1019,7 +1033,8 @@ export default function App() {
         return { ...topic, plannedDate: assignedDate, isOverdue };
       });
 
-      let availableHours = remedialBonusHours;
+      // Pure calendar walk teaching capacity from tomorrow to deadline (without bonus hours)
+      let baseAvailableHours = 0;
       let availCursor = new Date(todayDate + "T00:00:00");
       availCursor.setDate(availCursor.getDate() + 1);
       const finishDateObj = new Date(sub.targetFinishDate + "T00:00:00");
@@ -1030,16 +1045,16 @@ export default function App() {
         const isHoliday = subHolidaySet.has(iso);
         const isSatValid = isWorkingSaturday(availCursor, saturdayRule);
         if (!isHoliday && isSatValid && dayOfWeek !== 0) {
-          availableHours += sub.weeklyScheduleHours[dayOfWeek] || 0;
+          baseAvailableHours += sub.weeklyScheduleHours[dayOfWeek] || 0;
         }
         availCursor.setDate(availCursor.getDate() + 1);
       }
 
-      const bufferRatio = remainingHours === 0 ? 9.99 : availableHours / remainingHours;
-      let status = "ON TRACK";
-      if (remainingHours === 0) status = "COMPLETE";
-      else if (bufferRatio < thresholds.tight) status = "DANGER";
-      else if (bufferRatio < thresholds.onTrack) status = "TIGHT";
+      const baseBufferRatio = remainingHours === 0 ? 9.99 : baseAvailableHours / remainingHours;
+      let baseStatus = "ON TRACK";
+      if (remainingHours === 0) baseStatus = "COMPLETE";
+      else if (baseBufferRatio < thresholds.tight) baseStatus = "DANGER";
+      else if (baseBufferRatio < thresholds.onTrack) baseStatus = "TIGHT";
 
       const paceVsPlan = coveredHours - shouldBeCoveredByToday;
       const overdueCount = topicsWithDates.filter((t) => t.isOverdue).length;
@@ -1051,15 +1066,63 @@ export default function App() {
         coveredHours,
         coveragePct,
         remainingHours,
-        availableHours,
-        bufferRatio,
+        baseAvailableHours,
+        baseBufferRatio,
+        baseStatus,
         shouldBeCoveredByToday,
         paceVsPlan,
-        status,
         overdueCount,
       };
     });
-  }, [subjects, holidays, saturdayRule, semesterStart, semesterEnd, todayDate, remedialBonusHours, thresholds]);
+
+    // 2. Identify the subject with low buffer ratio which is tight (the bottleneck course)
+    const incompleteSubs = baseSubjects.filter((s) => s.remainingHours > 0);
+    const campusIncomplete = selectedCampus !== "ALL"
+      ? incompleteSubs.filter((s) => s.campus === selectedCampus)
+      : incompleteSubs;
+    const candidatePool = campusIncomplete.length > 0 ? campusIncomplete : incompleteSubs;
+
+    let autoTightestSubject = null;
+    if (candidatePool.length > 0) {
+      autoTightestSubject = candidatePool.reduce((worst, curr) => {
+        if (!worst) return curr;
+        return curr.baseBufferRatio < worst.baseBufferRatio ? curr : worst;
+      }, null);
+    }
+
+    // 3. Allocate remedial bonus hours ONLY to the targeted tight subject
+    return baseSubjects.map((sub) => {
+      let isTargeted = false;
+      if (remedialBonusHours > 0) {
+        if (remedialTargetSubjectId === "all-tight") {
+          isTargeted = sub.remainingHours > 0 && sub.baseBufferRatio < thresholds.onTrack;
+        } else if (remedialTargetSubjectId && remedialTargetSubjectId !== "auto") {
+          isTargeted = sub.id === remedialTargetSubjectId;
+        } else {
+          // Default: only the subject which has low buffer ratio which is tight
+          isTargeted = autoTightestSubject && sub.id === autoTightestSubject.id;
+        }
+      }
+
+      const remedialHoursApplied = isTargeted ? remedialBonusHours : 0;
+      const availableHours = sub.baseAvailableHours + remedialHoursApplied;
+      const bufferRatio = sub.remainingHours === 0 ? 9.99 : availableHours / sub.remainingHours;
+
+      let status = "ON TRACK";
+      if (sub.remainingHours === 0) status = "COMPLETE";
+      else if (bufferRatio < thresholds.tight) status = "DANGER";
+      else if (bufferRatio < thresholds.onTrack) status = "TIGHT";
+
+      return {
+        ...sub,
+        availableHours,
+        bufferRatio,
+        status,
+        remedialHoursApplied,
+        isRemedialTarget: isTargeted,
+      };
+    });
+  }, [subjects, holidays, saturdayRule, semesterStart, semesterEnd, todayDate, remedialBonusHours, remedialTargetSubjectId, selectedCampus, thresholds]);
 
   const visibleSubjects = useMemo(() => {
     // Check if the current faculty has any assigned subjects in the campus
@@ -1118,12 +1181,55 @@ export default function App() {
     const priority = { DANGER: 4, TIGHT: 3, "ON TRACK": 2, COMPLETE: 1 };
     let worst = trackSubs[0];
     for (const s of trackSubs) {
-      if (priority[s.status] > priority[worst.status]) {
+      if (
+        priority[s.status] > priority[worst.status] ||
+        (priority[s.status] === priority[worst.status] && s.bufferRatio < worst.bufferRatio)
+      ) {
         worst = s;
       }
     }
     return { status: worst.status, worstSub: `${worst.code} (${worst.bufferRatio.toFixed(2)})` };
   };
+
+  // Determine tightest subject and target name for What-If Recovery UI (declared unconditionally before any return)
+  const tightestCandidate = useMemo(() => {
+    const incomplete = computedSubjects.filter((s) => s.remainingHours > 0);
+    const pool = selectedCampus !== "ALL"
+      ? incomplete.filter((s) => s.campus === selectedCampus)
+      : incomplete;
+    const list = pool.length > 0 ? pool : incomplete;
+    if (list.length === 0) return null;
+    return list.reduce((worst, curr) => (!worst || curr.baseBufferRatio < worst.baseBufferRatio ? curr : worst), null);
+  }, [computedSubjects, selectedCampus]);
+
+  const activeRemedialTargetName = useMemo(() => {
+    if (remedialTargetSubjectId === "all-tight") {
+      const tightList = computedSubjects.filter((s) => s.remainingHours > 0 && s.baseBufferRatio < thresholds.onTrack);
+      return `All Tight Courses (${tightList.length})`;
+    }
+    if (remedialTargetSubjectId && remedialTargetSubjectId !== "auto") {
+      const found = computedSubjects.find((s) => s.id === remedialTargetSubjectId);
+      return found ? `${found.code} (${found.baseBufferRatio.toFixed(2)}x)` : "Selected Subject";
+    }
+    return tightestCandidate
+      ? `${tightestCandidate.code} (${tightestCandidate.baseBufferRatio.toFixed(2)}x · ${tightestCandidate.baseStatus})`
+      : "Tightest Course";
+  }, [remedialTargetSubjectId, computedSubjects, tightestCandidate, thresholds]);
+
+  // Effective campus for strictly campus-scoped operations (Syllabus, Timetable, Registration)
+  const effectiveCampus = currentUser?.campus && currentUser.campus !== "ALL"
+    ? currentUser.campus
+    : (selectedCampus !== "ALL" ? selectedCampus : "JUJ");
+
+  // Courses strictly and exclusively belonging to the user's active/logged-in campus
+  const campusSubjects = useMemo(() => {
+    return computedSubjects.filter((s) => s.campus === effectiveCampus);
+  }, [computedSubjects, effectiveCampus]);
+
+  const activeSyllabusSubject = useMemo(() => {
+    if (campusSubjects.length === 0) return null;
+    return campusSubjects.find((s) => s.id === selectedSyllabusSubId) || campusSubjects[0];
+  }, [campusSubjects, selectedSyllabusSubId]);
 
   // ============================================================================
   // ACTION HANDLERS (CSV, LOGGER, HONORARIUM EXPORT, TIMETABLE)
@@ -1957,6 +2063,383 @@ export default function App() {
     );
   };
 
+  // ============================================================================
+  // CAMPUS-EXCLUSIVE SYLLABUS MANAGEMENT & BULK IMPORT ENGINE
+  // ============================================================================
+  const canEditSubjectSyllabus = (sub) => {
+    if (!sub) return false;
+    if (isStudent) return false;
+    if (isAdmin) return true;
+    if (isCampusManager) {
+      return sub.campus === currentUser?.campus;
+    }
+    if (isFaculty) {
+      return sub.campus === currentUser?.campus && (sub.faculty === activeFacultyUser || !sub.faculty);
+    }
+    return false;
+  };
+
+  const parseSyllabusInput = (rawText) => {
+    if (!rawText || !rawText.trim()) {
+      return { error: "Input is empty. Please paste text or upload a CSV file.", topics: [] };
+    }
+    const lines = rawText.trim().split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length === 0) return { error: "No lines detected.", topics: [] };
+
+    const parsedTopics = [];
+    let headerSkipped = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      let parts = [];
+      if (line.includes("|")) {
+        parts = line.split("|").map((p) => p.trim());
+      } else if (line.includes("\t")) {
+        parts = line.split("\t").map((p) => p.trim());
+      } else {
+        parts = line.split(",").map((p) => p.trim().replace(/^["']|["']$/g, ""));
+      }
+
+      if (parts.length < 2) continue;
+
+      const firstCol = parts[0].toLowerCase();
+      const secondCol = parts[1].toLowerCase();
+      if (
+        !headerSkipped &&
+        (firstCol.includes("unit") && (secondCol.includes("topic") || secondCol.includes("title") || secondCol.includes("name")))
+      ) {
+        headerSkipped = true;
+        continue;
+      }
+
+      let unit = "Unit 1";
+      let title = "";
+      let hours = 4.0;
+      let examScope = "Mid-Term";
+      let status = "Pending";
+
+      if (/^(unit|module|chapter|u)\s*\d+/i.test(parts[0])) {
+        unit = parts[0];
+        title = parts[1] || `Topic ${parsedTopics.length + 1}`;
+        if (parts[2]) {
+          const h = parseFloat(parts[2]);
+          if (!isNaN(h) && h > 0) hours = h;
+        }
+        if (parts[3]) {
+          const s = parts[3].trim();
+          if (["Sessionals", "Mid-Term", "PUT", "End-Term"].includes(s)) examScope = s;
+          else if (/sessional/i.test(s)) examScope = "Sessionals";
+          else if (/mid/i.test(s)) examScope = "Mid-Term";
+          else if (/put/i.test(s)) examScope = "PUT";
+          else if (/end/i.test(s)) examScope = "End-Term";
+        }
+        if (parts[4]) {
+          const st = parts[4].trim();
+          if (["Pending", "In Progress", "Completed", "Skipped"].includes(st)) status = st;
+        }
+      } else {
+        title = parts[0];
+        if (parts[1]) {
+          const h = parseFloat(parts[1]);
+          if (!isNaN(h) && h > 0) hours = h;
+          else unit = parts[1];
+        }
+        if (parts[2]) {
+          const h = parseFloat(parts[2]);
+          if (!isNaN(h) && h > 0) hours = h;
+        }
+        if (parts[3]) {
+          const s = parts[3].trim();
+          if (/sessional/i.test(s)) examScope = "Sessionals";
+          else if (/mid/i.test(s)) examScope = "Mid-Term";
+          else if (/put/i.test(s)) examScope = "PUT";
+          else if (/end/i.test(s)) examScope = "End-Term";
+        }
+      }
+
+      if (title.trim()) {
+        parsedTopics.push({
+          id: `T-IMP-${Date.now().toString().slice(-4)}-${i + 1}`,
+          unit: unit.trim() || "Unit 1",
+          title: title.trim(),
+          plannedHours: Number(hours.toFixed(1)),
+          status,
+          pctComplete: status === "Completed" ? 100 : 0,
+          examScope,
+          coveredNotes: "",
+          leftoverNotes: "",
+          carryForwardTo: "",
+          cwStatus: status === "Completed" ? "Completed" : "Pending",
+          hwStatus: "None",
+          loggedAt: status === "Completed" ? todayDate : null,
+        });
+      }
+    }
+
+    if (parsedTopics.length === 0) {
+      return { error: "Could not parse valid topics. Format: Unit, Title, Hours, ExamScope", topics: [] };
+    }
+    return { error: "", topics: parsedTopics };
+  };
+
+  const handleAddSyllabusTopic = (e) => {
+    e.preventDefault();
+    if (!activeSyllabusSubject) return;
+    if (!canEditSubjectSyllabus(activeSyllabusSubject)) {
+      alert(`403 Permission Guard: You are logged into ${effectiveCampus}. You can only edit syllabus for ${effectiveCampus} courses.`);
+      return;
+    }
+    if (!newTopicTitle.trim()) {
+      alert("Please provide a topic title.");
+      return;
+    }
+    const hoursNum = Math.max(0.5, Number(newTopicHours) || 1.0);
+    const newTopic = {
+      id: `T-${Date.now().toString().slice(-5)}`,
+      unit: newTopicUnit.trim() || "Unit 1",
+      title: newTopicTitle.trim(),
+      plannedHours: Number(hoursNum.toFixed(1)),
+      status: "Pending",
+      pctComplete: 0,
+      examScope: newTopicScope,
+      coveredNotes: "",
+      leftoverNotes: "",
+      carryForwardTo: "",
+      cwStatus: "Pending",
+      hwStatus: "None",
+      loggedAt: null,
+    };
+
+    setSubjects((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSyllabusSubject.id || s.campus !== effectiveCampus) return s;
+        return { ...s, topics: [...s.topics, newTopic] };
+      })
+    );
+
+    setAuditTrail((prev) => [
+      {
+        id: Date.now(),
+        time: "Just now",
+        actor: currentUser.name,
+        action: `Added topic "${newTopic.title}" (${newTopic.plannedHours}h) to ${activeSyllabusSubject.code} syllabus (${effectiveCampus} campus).`,
+      },
+      ...prev,
+    ]);
+
+    setNewTopicTitle("");
+    setShowAddTopicForm(false);
+  };
+
+  const handleStartEditTopic = (topic) => {
+    setEditingTopicId(topic.id);
+    setEditingTopicData({
+      unit: topic.unit,
+      title: topic.title,
+      plannedHours: topic.plannedHours,
+      examScope: topic.examScope,
+      status: topic.status,
+      pctComplete: topic.pctComplete || 0,
+    });
+  };
+
+  const handleSaveEditTopic = (topicId) => {
+    if (!activeSyllabusSubject) return;
+    if (!canEditSubjectSyllabus(activeSyllabusSubject)) {
+      alert(`403 Permission Guard: You cannot edit syllabus for ${activeSyllabusSubject.campus}.`);
+      return;
+    }
+
+    const hoursNum = Math.max(0.5, Number(editingTopicData.plannedHours) || 1.0);
+    const newStatus = editingTopicData.status;
+    let pct = Number(editingTopicData.pctComplete) || 0;
+    if (newStatus === "Completed") pct = 100;
+    else if (newStatus === "Pending") pct = 0;
+
+    setSubjects((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSyllabusSubject.id || s.campus !== effectiveCampus) return s;
+        return {
+          ...s,
+          topics: s.topics.map((t) => {
+            if (t.id !== topicId) return t;
+            return {
+              ...t,
+              unit: editingTopicData.unit,
+              title: editingTopicData.title,
+              plannedHours: Number(hoursNum.toFixed(1)),
+              examScope: editingTopicData.examScope,
+              status: newStatus,
+              pctComplete: pct,
+              loggedAt: newStatus === "Completed" && !t.loggedAt ? todayDate : t.loggedAt,
+            };
+          }),
+        };
+      })
+    );
+
+    setAuditTrail((prev) => [
+      {
+        id: Date.now(),
+        time: "Just now",
+        actor: currentUser.name,
+        action: `Updated topic "${editingTopicData.title}" in ${activeSyllabusSubject.code} syllabus (${effectiveCampus} campus).`,
+      },
+      ...prev,
+    ]);
+
+    setEditingTopicId(null);
+  };
+
+  const handleDeleteSyllabusTopic = (topicId, topicTitle) => {
+    if (!activeSyllabusSubject) return;
+    if (!canEditSubjectSyllabus(activeSyllabusSubject)) {
+      alert(`403 Permission Guard: You cannot delete topics from ${activeSyllabusSubject.campus}.`);
+      return;
+    }
+
+    if (!window.confirm(`Delete topic "${topicTitle}" from ${activeSyllabusSubject.code} syllabus?`)) return;
+
+    setSubjects((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSyllabusSubject.id || s.campus !== effectiveCampus) return s;
+        return { ...s, topics: s.topics.filter((t) => t.id !== topicId) };
+      })
+    );
+
+    setAuditTrail((prev) => [
+      {
+        id: Date.now(),
+        time: "Just now",
+        actor: currentUser.name,
+        action: `Removed topic "${topicTitle}" from ${activeSyllabusSubject.code} syllabus (${effectiveCampus} campus).`,
+      },
+      ...prev,
+    ]);
+  };
+
+  const handleMoveSyllabusTopic = (index, direction) => {
+    if (!activeSyllabusSubject) return;
+    if (!canEditSubjectSyllabus(activeSyllabusSubject)) return;
+
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= activeSyllabusSubject.topics.length) return;
+
+    setSubjects((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSyllabusSubject.id || s.campus !== effectiveCampus) return s;
+        const newTopics = [...s.topics];
+        const [moved] = newTopics.splice(index, 1);
+        newTopics.splice(newIndex, 0, moved);
+        return { ...s, topics: newTopics };
+      })
+    );
+  };
+
+  const handleDownloadSyllabusTemplate = () => {
+    const code = activeSyllabusSubject ? activeSyllabusSubject.code : "COURSE";
+    const templateContent = [
+      "Unit,Topic Title,Planned Hours,Exam Scope,Status",
+      "Unit 1,Introduction & Theoretical Foundations,4.0,Sessionals,Pending",
+      "Unit 1,Core Mechanics & Implementation,5.0,Mid-Term,Pending",
+      "Unit 2,Advanced Applications & Case Studies,6.0,Mid-Term,Pending",
+      "Unit 3,System Architecture & Production Deployment,5.5,End-Term,Pending",
+      "Unit 4,Performance Benchmarking & Final Review,4.5,End-Term,Pending",
+    ].join("\n");
+
+    const blob = new Blob([templateContent], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Syllabus_Template_${code}_${effectiveCampus}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCurrentSyllabus = () => {
+    if (!activeSyllabusSubject) return;
+    const headers = ["Index,Unit,Topic Title,Planned Hours,Exam Scope,Status,PctComplete,PlannedDate"];
+    const rows = activeSyllabusSubject.topics.map((t, i) =>
+      [
+        i + 1,
+        `"${t.unit}"`,
+        `"${t.title.replace(/"/g, '""')}"`,
+        t.plannedHours.toFixed(1),
+        t.examScope,
+        t.status,
+        (t.pctComplete || 0) + "%",
+        t.plannedDate || "Beyond Calendar",
+      ].join(",")
+    );
+
+    const blob = new Blob([[...headers, ...rows].join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Syllabus_${activeSyllabusSubject.code}_${effectiveCampus}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSyllabusFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result;
+      if (typeof text === "string") {
+        setSyllabusImportText(text);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleExecuteSyllabusImport = () => {
+    if (!activeSyllabusSubject) return;
+    if (!canEditSubjectSyllabus(activeSyllabusSubject)) {
+      alert(`403 Permission Guard: You are logged into ${effectiveCampus}. You can only import syllabus for ${effectiveCampus} courses.`);
+      return;
+    }
+
+    const { error, topics } = parseSyllabusInput(syllabusImportText);
+    if (error) {
+      alert(error);
+      return;
+    }
+
+    if (topics.length === 0) {
+      alert("No topics found in the input text/file.");
+      return;
+    }
+
+    setSubjects((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSyllabusSubject.id || s.campus !== effectiveCampus) return s;
+        const finalTopics = syllabusImportAction === "replace"
+          ? topics
+          : [...s.topics, ...topics];
+        return { ...s, topics: finalTopics };
+      })
+    );
+
+    setAuditTrail((prev) => [
+      {
+        id: Date.now(),
+        time: "Just now",
+        actor: currentUser.name,
+        action: `Bulk imported ${topics.length} syllabus topics (${syllabusImportAction} mode) to ${activeSyllabusSubject.code} for ${effectiveCampus} campus.`,
+      },
+      ...prev,
+    ]);
+
+    setSyllabusImportFeedback({
+      type: "success",
+      message: `Successfully imported ${topics.length} topics into ${activeSyllabusSubject.code} (${effectiveCampus} campus)!`,
+    });
+    setSyllabusImportModalOpen(false);
+    setSyllabusImportText("");
+  };
+
   const handleWhatsappParse = () => {
     const text = whatsappInput.toLowerCase();
     let detectedPct = 100;
@@ -2371,13 +2854,36 @@ export default function App() {
 
   const navItems = [
     { id: "dashboard", label: "📊 Pacing Dashboard", roles: ["Admin / Program Manager", "Campus Manager", "Faculty"] },
+    { id: "syllabus", label: "📚 Editable Syllabus", badge: "Import", roles: ["Admin / Program Manager", "Campus Manager", "Faculty", "Student"] },
     { id: "logger", label: "⚡ <60s Session Logger", badge: "SLA", roles: ["Admin / Program Manager", "Faculty"] },
     { id: "honorarium", label: "💼 Visiting Honorarium", badge: "₹", roles: ["Admin / Program Manager", "Campus Manager", "Faculty"] },
-    { id: "timetable", label: "🕒 Timetable & Syllabus", roles: ["Admin / Program Manager", "Campus Manager", "Faculty", "Student"] },
+    { id: "timetable", label: "🕒 Timetable Schedule", roles: ["Admin / Program Manager", "Campus Manager", "Faculty", "Student"] },
     { id: "calendar", label: "📅 Calendar & Holidays", roles: ["Admin / Program Manager", "Campus Manager", "Faculty"] },
     { id: "exams", label: "🎯 Exam & Student View", roles: ["Admin / Program Manager", "Campus Manager", "Faculty", "Student"] },
     { id: "alerts", label: "🔔 Alerts & Audit Log", roles: ["Admin / Program Manager", "Campus Manager"] },
   ].filter((item) => item.roles.includes(role));
+
+  const isNavTabActive = (tabId) => {
+    if (tabId === "syllabus") return activeTab === "timetable" && timetableSubView === "syllabus";
+    if (tabId === "timetable") return activeTab === "timetable" && timetableSubView === "schedule";
+    return activeTab === tabId;
+  };
+
+  const handleNavTabClick = (tabId) => {
+    if (tabId === "syllabus") {
+      setActiveTab("timetable");
+      setTimetableSubView("syllabus");
+    } else if (tabId === "timetable") {
+      setActiveTab("timetable");
+      setTimetableSubView("schedule");
+    } else {
+      setActiveTab(tabId);
+      if (tabId === "logger") {
+        setStopwatchSec(0);
+        setStopwatchRunning(true);
+      }
+    }
+  };
 
   return (
     <div data-theme={theme} className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
@@ -2433,17 +2939,14 @@ export default function App() {
                   <button
                     key={tab.id}
                     onClick={() => {
-                      setActiveTab(tab.id);
+                      handleNavTabClick(tab.id);
                       setBurgerOpen(false);
-                      if (tab.id === "logger") {
-                        setStopwatchSec(0);
-                        setStopwatchRunning(true);
-                      }
                     }}
-                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl font-semibold transition ${activeTab === tab.id
+                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl font-semibold transition ${
+                      isNavTabActive(tab.id)
                         ? "bg-indigo-600 text-white shadow"
                         : "text-slate-400 hover:bg-slate-800/70 hover:text-white"
-                      }`}
+                    }`}
                   >
                     <span className="truncate">{tab.label}</span>
                     {tab.badge && (
@@ -2507,15 +3010,10 @@ export default function App() {
             {navItems.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  if (tab.id === "logger") {
-                    setStopwatchSec(0);
-                    setStopwatchRunning(true);
-                  }
-                }}
-                className={`px-2.5 py-1.5 rounded-lg font-semibold transition ${activeTab === tab.id ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
-                  }`}
+                onClick={() => handleNavTabClick(tab.id)}
+                className={`px-2.5 py-1.5 rounded-lg font-semibold transition ${
+                  isNavTabActive(tab.id) ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                }`}
               >
                 {tab.label}
               </button>
@@ -2686,28 +3184,67 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/70 to-cyan-950/40 border border-cyan-500/30">
-                <div className="flex justify-between items-center">
-                  <span className="text-[11px] font-bold uppercase text-cyan-300">✨ What-If Recovery</span>
-                  <span className="text-xs font-extrabold text-emerald-300">+{remedialBonusHours}h</span>
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/70 to-cyan-950/40 border border-cyan-500/30 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] font-bold uppercase text-cyan-300">✨ What-If Recovery</span>
+                    <span className="text-xs font-extrabold text-emerald-300">+{remedialBonusHours}h</span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1">Simulate extra Saturday remedial hours:</p>
+
+                  <div className="mt-2.5 flex items-center justify-between gap-1 text-[11px]">
+                    <span className="text-slate-400 shrink-0 font-medium">Target:</span>
+                    <select
+                      value={remedialTargetSubjectId}
+                      onChange={(e) => setRemedialTargetSubjectId(e.target.value)}
+                      className="bg-slate-950/90 border border-cyan-500/30 rounded-lg px-2 py-1 text-[11px] text-cyan-200 font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-400 w-full max-w-[195px] truncate"
+                      title="Select which course receives the simulated remedial hours"
+                    >
+                      <option value="auto">
+                        🎯 Auto: Tightest ({tightestCandidate ? `${tightestCandidate.code} · ${tightestCandidate.baseBufferRatio.toFixed(2)}x` : "None"})
+                      </option>
+                      <option value="all-tight">
+                        ⚠️ All Tight Courses (&lt; {thresholds.onTrack.toFixed(2)}x)
+                      </option>
+                      <optgroup label="Specific Course">
+                        {computedSubjects.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.code}: {s.name.slice(0, 16)}... ({s.baseBufferRatio.toFixed(2)}x)
+                          </option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-300 mt-1">Simulate extra Saturday remedial hours:</p>
-                <div className="mt-2.5 flex items-center gap-2">
-                  <input
-                    type="range"
-                    min="0"
-                    max="12"
-                    step="1"
-                    value={remedialBonusHours}
-                    onChange={(e) => setRemedialBonusHours(Number(e.target.value))}
-                    className="w-full accent-cyan-400"
-                  />
-                  <button
-                    onClick={() => setRemedialBonusHours(0)}
-                    className="px-2 py-1 rounded bg-slate-900 text-[11px] text-slate-300 border border-slate-700"
-                  >
-                    Reset
-                  </button>
+
+                <div className="mt-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="0"
+                      max="12"
+                      step="1"
+                      value={remedialBonusHours}
+                      onChange={(e) => setRemedialBonusHours(Number(e.target.value))}
+                      className="w-full accent-cyan-400"
+                    />
+                    <button
+                      onClick={() => {
+                        setRemedialBonusHours(0);
+                        setRemedialTargetSubjectId("auto");
+                      }}
+                      className="px-2 py-1 rounded bg-slate-900 text-[11px] text-slate-300 hover:text-white border border-slate-700 transition"
+                    >
+                      Reset
+                    </button>
+                  </div>
+
+                  {remedialBonusHours > 0 && (
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300 bg-cyan-950/40 px-2 py-1 rounded-lg border border-cyan-500/20">
+                      <span className="truncate">Allocated to <strong className="text-cyan-300">{activeRemedialTargetName}</strong></span>
+                      <span className="text-emerald-300 font-bold ml-1 shrink-0">+{remedialBonusHours}h</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2781,9 +3318,23 @@ export default function App() {
                         <td className="py-3.5 px-3 text-right font-mono font-bold">{s.coveragePct.toFixed(2)}%</td>
                         <td className="py-3.5 px-3 text-right font-mono">{s.remainingHours.toFixed(2)}h</td>
                         <td className="py-3.5 px-3 text-right font-mono text-emerald-300">
-                          {s.availableHours.toFixed(2)}h
+                          <div className="flex items-center justify-end gap-1">
+                            <span>{s.availableHours.toFixed(2)}h</span>
+                            {s.remedialHoursApplied > 0 && (
+                              <span className="text-[10px] font-bold text-cyan-300 bg-cyan-950/80 px-1 py-0.5 rounded border border-cyan-500/30">
+                                +{s.remedialHoursApplied}h
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="py-3.5 px-3 text-right font-mono font-bold">{s.bufferRatio.toFixed(2)}</td>
+                        <td className="py-3.5 px-3 text-right font-mono font-bold">
+                          <span>{s.bufferRatio.toFixed(2)}</span>
+                          {s.remedialHoursApplied > 0 && (
+                            <span className="block text-[10px] text-slate-400 font-normal">
+                              base {s.baseBufferRatio.toFixed(2)}
+                            </span>
+                          )}
+                        </td>
                         <td
                           className={`py-3.5 px-3 text-right font-mono font-bold ${s.paceVsPlan < 0 ? "text-rose-400" : "text-emerald-400"
                             }`}
@@ -2795,12 +3346,25 @@ export default function App() {
                           <span className={statusBadge(s.status)}>{s.status}</span>
                         </td>
                         <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => setAuditModalSubject(s)}
-                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 border border-slate-700"
-                          >
-                            🔍 Audit Math
-                          </button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => {
+                                setSelectedSyllabusSubId(s.id);
+                                setTimetableSubView("syllabus");
+                                setActiveTab("timetable");
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-xs font-semibold text-indigo-300 border border-indigo-500/30 transition flex items-center gap-1"
+                              title={`Open editable syllabus for ${s.code} (${s.campus})`}
+                            >
+                              <span>📚 Syllabus</span>
+                            </button>
+                            <button
+                              onClick={() => setAuditModalSubject(s)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 border border-slate-700"
+                            >
+                              🔍 Audit Math
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -3740,9 +4304,9 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleWhatsappParse}
-                  className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
+                  className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow"
                 >
-                  ✨ Parse into Form
+                  ⚡ Parse Note
                 </button>
               </div>
             </div>
@@ -3751,354 +4315,1063 @@ export default function App() {
 
         {/* ==================== TAB 4: MINIMAL TIMETABLE & SYLLABUS ==================== */}
         {activeTab === "timetable" && (
-          <div className="space-y-4">
-            {/* MINIMAL HEADER BAR */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-              <div className="flex items-baseline gap-2.5">
-                <h2 className="text-base font-bold tracking-tight text-white">Timetable</h2>
-                <span className="text-xs text-slate-400">
-                  {selectedCampus} · {timetableSpanDays}d view · {canEditTimetable ? "Faculty edit" : "Read-only"}
-                </span>
+          <div className="space-y-5">
+            {/* TAB SUB-HEADER WITH CAMPUS BADGE AND SUB-VIEW TOGGLE */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-xl shrink-0">
+                  {timetableSubView === "schedule" ? "🕒" : "📚"}
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base font-extrabold tracking-tight text-white">
+                      {timetableSubView === "schedule" ? "Weekly Timetable & Schedule" : "Campus Syllabus & Lesson Plan Manager"}
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                      🏢 {effectiveCampus} Campus (Exclusive)
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {timetableSubView === "schedule"
+                      ? `${effectiveCampus} campus weekly class grid and faculty assignments.`
+                      : `View, edit, reorder, and import syllabus topics strictly for ${effectiveCampus} campus courses.`}
+                  </p>
+                </div>
               </div>
 
-              <div className="inline-flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+              {/* VIEW SWITCHER PILLS */}
+              <div className="inline-flex p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold">
                 <button
                   type="button"
-                  onClick={() => setTimetableSpanDays(7)}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    timetableSpanDays === 7 ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                  onClick={() => setTimetableSubView("schedule")}
+                  className={`px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                    timetableSubView === "schedule"
+                      ? "bg-indigo-600 text-white shadow"
+                      : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  7d
+                  <span>🕒 Timetable</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTimetableSpanDays(14)}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    timetableSpanDays === 14 ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                  onClick={() => setTimetableSubView("syllabus")}
+                  className={`px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                    timetableSubView === "syllabus"
+                      ? "bg-cyan-600 text-white shadow"
+                      : "text-slate-400 hover:text-white"
                   }`}
                 >
-                  14d
+                  <span>📚 Editable Syllabus & Import</span>
+                  <span className="px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-200 text-[10px] border border-cyan-500/30">
+                    {campusSubjects.length}
+                  </span>
                 </button>
               </div>
             </div>
 
-            {/* MINIMAL 7-DAY / 14-DAY GRID */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
-              {upcomingTimetableDays.map((day) => {
-                const isOff = Boolean(day.holidayName) || day.isSunday || day.isNonWorkingSat;
-                return (
-                  <div
-                    key={day.date}
-                    className={`rounded-2xl border p-3 flex flex-col justify-between min-h-[140px] ${
-                      isOff
-                        ? "bg-slate-950/60 border-slate-800/60"
-                        : "bg-slate-900 border-slate-800"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                        <span className="text-xs font-semibold text-white">{day.dayLabel}</span>
-                        <span className="text-[10px] font-mono text-slate-400">{day.date.slice(5)}</span>
+            {/* SUB-VIEW 1: TIMETABLE SCHEDULE GRID */}
+            {timetableSubView === "schedule" && (
+              <div className="space-y-4">
+                {/* MINIMAL HEADER BAR */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                  <div className="flex items-baseline gap-2.5">
+                    <h3 className="text-sm font-bold tracking-tight text-white">Class Timetable Grid</h3>
+                    <span className="text-xs text-slate-400">
+                      {effectiveCampus} · {timetableSpanDays}d view · {canEditTimetable ? "Faculty edit" : "Read-only"}
+                    </span>
+                  </div>
+
+                  <div className="inline-flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setTimetableSpanDays(7)}
+                      className={`px-3 py-1 rounded-lg transition ${
+                        timetableSpanDays === 7 ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      7d
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTimetableSpanDays(14)}
+                      className={`px-3 py-1 rounded-lg transition ${
+                        timetableSpanDays === 14 ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      14d
+                    </button>
+                  </div>
+                </div>
+
+                {/* MINIMAL 7-DAY / 14-DAY GRID */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
+                  {upcomingTimetableDays.map((day) => {
+                    const isOff = Boolean(day.holidayName) || day.isSunday || day.isNonWorkingSat;
+                    return (
+                      <div
+                        key={day.date}
+                        className={`rounded-2xl border p-3 flex flex-col justify-between min-h-[140px] ${
+                          isOff
+                            ? "bg-slate-950/60 border-slate-800/60"
+                            : "bg-slate-900 border-slate-800"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                            <span className="text-xs font-semibold text-white">{day.dayLabel}</span>
+                            <span className="text-[10px] font-mono text-slate-400">{day.date.slice(5)}</span>
+                          </div>
+
+                          {day.holidayName ? (
+                            <p className="py-4 text-[11px] text-rose-300 font-medium text-center">
+                              {day.holidayName}
+                            </p>
+                          ) : day.isSunday ? (
+                            <p className="py-4 text-[11px] text-slate-400 text-center">Sunday</p>
+                          ) : day.isNonWorkingSat ? (
+                            <p className="py-4 text-[11px] text-slate-400 text-center">Saturday Off</p>
+                          ) : day.slots.length === 0 ? (
+                            <p className="py-4 text-[11px] text-slate-400 text-center">—</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {day.slots.map((slot) => {
+                                const isEditingThis =
+                                  editingSlot &&
+                                  editingSlot.subId === slot.subId &&
+                                  editingSlot.idx === slot.slotIdx;
+
+                                return (
+                                  <div
+                                    key={`${day.date}-${slot.subId}-${slot.slotIdx}`}
+                                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1"
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="font-mono text-[11px] text-cyan-300 font-semibold">
+                                        {slot.start}–{slot.end}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-mono">
+                                        {slot.room}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-1">
+                                      <p className="text-[11px] font-semibold text-white truncate" title={slot.subjectName}>
+                                        {slot.code} · {slot.subjectName}
+                                      </p>
+                                      {slot.canModifyThisSlot && !isEditingThis && (
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setEditingSlot({
+                                                subId: slot.subId,
+                                                idx: slot.slotIdx,
+                                                start: slot.start,
+                                                end: slot.end,
+                                                room: slot.room,
+                                              })
+                                            }
+                                            className="px-1 text-slate-400 hover:text-amber-300 text-[10px]"
+                                            title="Edit slot"
+                                          >
+                                            ✎
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteTimetableSlot(slot.subId, slot.slotIdx)}
+                                            className="px-1 text-slate-400 hover:text-rose-300 text-[10px]"
+                                            title="Remove slot"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                                      <span className="truncate">{slot.faculty}</span>
+                                      {isFaculty && slot.faculty === activeFacultyUser && (
+                                        <span className="shrink-0 px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30 text-[9px]">
+                                          You
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {isEditingThis && (
+                                      <div className="pt-1.5 space-y-1.5 border-t border-slate-800">
+                                        <div className="grid grid-cols-2 gap-1">
+                                          <input
+                                            type="time"
+                                            value={editingSlot.start}
+                                            onChange={(e) =>
+                                              setEditingSlot({ ...editingSlot, start: e.target.value })
+                                            }
+                                            className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
+                                          />
+                                          <input
+                                            type="time"
+                                            value={editingSlot.end}
+                                            onChange={(e) =>
+                                              setEditingSlot({ ...editingSlot, end: e.target.value })
+                                            }
+                                            className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
+                                          />
+                                        </div>
+                                        <input
+                                          type="text"
+                                          value={editingSlot.room}
+                                          onChange={(e) =>
+                                            setEditingSlot({ ...editingSlot, room: e.target.value })
+                                          }
+                                          placeholder="Room"
+                                          className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px]"
+                                        />
+                                        <div className="flex gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveSlotEdit(slot.subId, slot.slotIdx)}
+                                            className="flex-1 py-1 rounded bg-emerald-600 text-white font-semibold text-[10px]"
+                                          >
+                                            Save
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingSlot(null)}
+                                            className="flex-1 py-1 rounded bg-slate-800 text-slate-300 text-[10px]"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
 
-                      {day.holidayName ? (
-                        <p className="py-4 text-[11px] text-rose-300 font-medium text-center">
-                          {day.holidayName}
-                        </p>
-                      ) : day.isSunday ? (
-                        <p className="py-4 text-[11px] text-slate-400 text-center">Sunday</p>
-                      ) : day.isNonWorkingSat ? (
-                        <p className="py-4 text-[11px] text-slate-400 text-center">Saturday Off</p>
-                      ) : day.slots.length === 0 ? (
-                        <p className="py-4 text-[11px] text-slate-400 text-center">—</p>
+                {/* ROLE-SCOPED TIMETABLE & FACULTY CONTROLS */}
+                {canManageTimetableAndFaculty && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <form onSubmit={handleAddTimetableSlot} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-white">Manage Campus Timetable Slot</span>
+                        <span className="text-[11px] font-mono text-cyan-300">+{computeSlotHours(ttStart, ttEnd)}h/wk</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <select
+                          value={ttSubjectId}
+                          onChange={(e) => setTtSubjectId(e.target.value)}
+                          className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium sm:col-span-2"
+                        >
+                          {campusSubjects.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.code} ({s.campus})
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={ttDay}
+                          onChange={(e) => setTtDay(Number(e.target.value))}
+                          className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 font-medium"
+                        >
+                          {Object.entries(DAY_NAMES).map(([k, v]) => (
+                            <option key={k} value={k}>
+                              {v}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={ttRoom}
+                          onChange={(e) => setTtRoom(e.target.value)}
+                          placeholder="Room"
+                          className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
+                        />
+                        <button type="submit" className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+                          + Add
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="time"
+                          value={ttStart}
+                          onChange={(e) => setTtStart(e.target.value)}
+                          className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
+                        />
+                        <input
+                          type="time"
+                          value={ttEnd}
+                          onChange={(e) => setTtEnd(e.target.value)}
+                          className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
+                        />
+                      </div>
+                    </form>
+
+                    <form onSubmit={handleAssignFaculty} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-white">Manage Campus Faculty Assignment</span>
+                        <span className="text-[11px] text-slate-400">Campus Manager / Admin</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <select
+                          value={assignSubId}
+                          onChange={(e) => {
+                            setAssignSubId(e.target.value);
+                            const sub = subjects.find((s) => s.id === e.target.value);
+                            if (sub) setAssignFacultyName(sub.faculty);
+                          }}
+                          className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium"
+                        >
+                          {campusSubjects.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.code}: {s.name} ({s.campus} · {s.faculty})
+                            </option>
+                          ))}
+                        </select>
+                        <div>
+                          <input
+                            type="text"
+                            list="availableFacultyList"
+                            value={assignFacultyName}
+                            onChange={(e) => setAssignFacultyName(e.target.value)}
+                            placeholder="Select or enter faculty name"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white"
+                          />
+                          <datalist id="availableFacultyList">
+                            {availableFaculty.map((fac) => (
+                              <option key={fac} value={fac} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <button type="submit" className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+                          Assign Faculty
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SUB-VIEW 2: DEDICATED EDITABLE SYLLABUS & BULK IMPORTER */}
+            {timetableSubView === "syllabus" && (
+              <div className="space-y-5">
+                {/* SUCCESS / FEEDBACK BANNER */}
+                {syllabusImportFeedback && (
+                  <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span>✅</span>
+                      <span className="font-semibold">{syllabusImportFeedback.message}</span>
+                    </div>
+                    <button
+                      onClick={() => setSyllabusImportFeedback(null)}
+                      className="text-emerald-400 hover:text-white font-bold ml-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* COURSE SELECTOR & ACTION BAR */}
+                <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+                  {/* CAMPUS SCOPE ISOLATION BADGE / SWITCHER */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        Campus Scope:
+                      </span>
+                      {isAdmin ? (
+                        <div className="inline-flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-700">
+                          {campuses.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => {
+                                setSelectedCampus(c);
+                                setSelectedSyllabusSubId("");
+                              }}
+                              className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                                effectiveCampus === c
+                                  ? "bg-cyan-600 text-white shadow"
+                                  : "text-slate-400 hover:text-white"
+                              }`}
+                            >
+                              <span>🏢</span>
+                              <span>{c} Campus</span>
+                            </button>
+                          ))}
+                        </div>
                       ) : (
-                        <div className="space-y-1.5">
-                          {day.slots.map((slot) => {
-                            const isEditingThis =
-                              editingSlot &&
-                              editingSlot.subId === slot.subId &&
-                              editingSlot.idx === slot.slotIdx;
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-bold">
+                          <span>🔒 {currentUser?.campus} Campus</span>
+                          <span className="text-[10px] text-cyan-400 font-normal">
+                            (Exclusively locked to your logged-in {role} account)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 font-mono text-cyan-300 font-semibold">
+                        {campusSubjects.length} Courses in {effectiveCampus}
+                      </span>
+                    </div>
+                  </div>
 
-                            return (
-                              <div
-                                key={`${day.date}-${slot.subId}-${slot.slotIdx}`}
-                                className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1"
-                              >
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="font-mono text-[11px] text-cyan-300 font-semibold">
-                                    {slot.start}–{slot.end}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 font-mono">
-                                    {slot.room}
-                                  </span>
-                                </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Select Course in {effectiveCampus} Campus (Exclusive):
+                      </label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={activeSyllabusSubject?.id || ""}
+                          onChange={(e) => {
+                            setSelectedSyllabusSubId(e.target.value);
+                            setEditingTopicId(null);
+                            setShowAddTopicForm(false);
+                          }}
+                          className="bg-slate-950 border border-cyan-500/40 rounded-xl px-3 py-2 text-sm text-white font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-400 min-w-[280px]"
+                        >
+                          {campusSubjects.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.code}: {s.name} ({s.track})
+                            </option>
+                          ))}
+                        </select>
+                        {activeSyllabusSubject && (
+                          <span className="text-xs text-slate-400 px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800">
+                            Instructor: <strong className="text-white">{activeSyllabusSubject.faculty}</strong>
+                          </span>
+                        )}
+                      </div>
+                    </div>
 
-                                <div className="flex items-center justify-between gap-1">
-                                  <p className="text-[11px] font-semibold text-white truncate" title={slot.subjectName}>
-                                    {slot.code} · {slot.subjectName}
-                                  </p>
-                                  {slot.canModifyThisSlot && !isEditingThis && (
-                                    <div className="flex items-center gap-1 shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setEditingSlot({
-                                            subId: slot.subId,
-                                            idx: slot.slotIdx,
-                                            start: slot.start,
-                                            end: slot.end,
-                                            room: slot.room,
-                                          })
-                                        }
-                                        className="px-1 text-slate-400 hover:text-amber-300 text-[10px]"
-                                        title="Edit slot"
-                                      >
-                                        ✎
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteTimetableSlot(slot.subId, slot.slotIdx)}
-                                        className="px-1 text-slate-400 hover:text-rose-300 text-[10px]"
-                                        title="Remove slot"
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
+                    {/* ACTION BUTTONS */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {activeSyllabusSubject && canEditSubjectSyllabus(activeSyllabusSubject) && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSyllabusImportModalOpen(true);
+                              setSyllabusImportFeedback(null);
+                            }}
+                            className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:opacity-90 text-white font-bold text-xs shadow-lg shadow-cyan-600/20 transition flex items-center gap-1.5"
+                          >
+                            <span>📥</span>
+                            <span>Import Syllabus</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowAddTopicForm(!showAddTopicForm)}
+                            className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow transition flex items-center gap-1.5"
+                          >
+                            <span>{showAddTopicForm ? "✕ Close Form" : "+ Add Topic"}</span>
+                          </button>
+                        </>
+                      )}
+                      {activeSyllabusSubject && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={handleDownloadSyllabusTemplate}
+                            className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 font-semibold text-xs transition flex items-center gap-1"
+                            title="Download sample CSV format template"
+                          >
+                            <span>📄 Sample CSV</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleExportCurrentSyllabus}
+                            className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 font-semibold text-xs transition flex items-center gap-1"
+                            title="Export this syllabus to CSV"
+                          >
+                            <span>⬇️ Export CSV</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
 
-                                <div className="flex items-center justify-between text-[10px] text-slate-400">
-                                  <span className="truncate">{slot.faculty}</span>
-                                  {isFaculty && slot.faculty === activeFacultyUser && (
-                                    <span className="shrink-0 px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/30 text-[9px]">
-                                      You
-                                    </span>
-                                  )}
-                                </div>
+                  {/* METRIC PILLS FOR SELECTED SUBJECT */}
+                  {activeSyllabusSubject ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-3 border-t border-slate-800 text-xs">
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Topics</span>
+                        <span className="text-sm font-bold text-white">{activeSyllabusSubject.topics.length} items</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Scope Hours</span>
+                        <span className="text-sm font-bold font-mono text-cyan-300">{activeSyllabusSubject.hoursInScope.toFixed(1)}h</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Covered</span>
+                        <span className="text-sm font-bold font-mono text-emerald-300">
+                          {activeSyllabusSubject.coveredHours.toFixed(1)}h ({activeSyllabusSubject.coveragePct.toFixed(0)}%)
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Remaining</span>
+                        <span className="text-sm font-bold font-mono text-amber-300">{activeSyllabusSubject.remainingHours.toFixed(1)}h</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Buffer Ratio</span>
+                        <span className="text-sm font-bold font-mono text-white">{activeSyllabusSubject.bufferRatio.toFixed(2)}x</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block">Pacing Status</span>
+                          <span className={statusBadge(activeSyllabusSubject.status)}>{activeSyllabusSubject.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 text-center text-slate-400 text-sm">
+                      No courses found for <strong className="text-white">{effectiveCampus}</strong> campus.
+                    </div>
+                  )}
+                </div>
 
-                                {isEditingThis && (
-                                  <div className="pt-1.5 space-y-1.5 border-t border-slate-800">
-                                    <div className="grid grid-cols-2 gap-1">
-                                      <input
-                                        type="time"
-                                        value={editingSlot.start}
-                                        onChange={(e) =>
-                                          setEditingSlot({ ...editingSlot, start: e.target.value })
-                                        }
-                                        className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
-                                      />
-                                      <input
-                                        type="time"
-                                        value={editingSlot.end}
-                                        onChange={(e) =>
-                                          setEditingSlot({ ...editingSlot, end: e.target.value })
-                                        }
-                                        className="w-full bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px]"
-                                      />
-                                    </div>
+                {/* QUICK ADD TOPIC FORM (IF TOGGLED) */}
+                {showAddTopicForm && activeSyllabusSubject && canEditSubjectSyllabus(activeSyllabusSubject) && (
+                  <form onSubmit={handleAddSyllabusTopic} className="p-4 rounded-2xl bg-slate-900 border border-cyan-500/30 space-y-3 text-xs shadow-xl animate-fadeIn">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="font-bold text-sm text-cyan-300 flex items-center gap-1.5">
+                        <span>+ Add New Topic to Syllabus</span>
+                        <span className="text-[11px] text-slate-400 font-normal">({activeSyllabusSubject.code} · {effectiveCampus})</span>
+                      </span>
+                      <button type="button" onClick={() => setShowAddTopicForm(false)} className="text-slate-400 hover:text-white">✕</button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Unit / Module</label>
+                        <input
+                          type="text"
+                          required
+                          value={newTopicUnit}
+                          onChange={(e) => setNewTopicUnit(e.target.value)}
+                          placeholder="e.g. Unit 3"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        />
+                      </div>
+                      <div className="lg:col-span-2">
+                        <label className="block text-[11px] text-slate-400 mb-1">Topic Title</label>
+                        <input
+                          type="text"
+                          required
+                          value={newTopicTitle}
+                          onChange={(e) => setNewTopicTitle(e.target.value)}
+                          placeholder="e.g. Distributed Consensus & Raft Protocol"
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Planned Teaching Hours</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0.5"
+                          required
+                          value={newTopicHours}
+                          onChange={(e) => setNewTopicHours(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Exam Scope Window</label>
+                        <select
+                          value={newTopicScope}
+                          onChange={(e) => setNewTopicScope(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                        >
+                          <option value="Sessionals">Sessionals</option>
+                          <option value="Mid-Term">Mid-Term</option>
+                          <option value="PUT">PUT</option>
+                          <option value="End-Term">End-Term</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddTopicForm(false)}
+                        className="py-1.5 px-3 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="py-1.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                      >
+                        + Add to Syllabus
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* EDITABLE SYLLABUS TOPICS TABLE */}
+                {activeSyllabusSubject && (
+                  <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-xl">
+                    <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                          <span>Course Syllabus: {activeSyllabusSubject.code} — {activeSyllabusSubject.name}</span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-normal">
+                            {activeSyllabusSubject.topics.length} topics
+                          </span>
+                        </h3>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Sequence of topics determines automatic calendar-walking dates. Use ▲ ▼ arrows to reorder, ✎ to edit, ✕ to delete.
+                        </p>
+                      </div>
+                      {!canEditSubjectSyllabus(activeSyllabusSubject) && (
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                          👁️ Read-only View ({role})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                        <thead>
+                          <tr className="bg-slate-950/80 text-slate-400 text-[11px] uppercase tracking-wider border-b border-slate-800">
+                            <th className="py-3 px-3 w-10 text-center">#</th>
+                            <th className="py-3 px-3 w-28">Unit</th>
+                            <th className="py-3 px-4">Topic Title</th>
+                            <th className="py-3 px-3 text-right w-24">Hours</th>
+                            <th className="py-3 px-3 text-center w-28">Exam Scope</th>
+                            <th className="py-3 px-3 text-center w-28">Status</th>
+                            <th className="py-3 px-3 text-center w-32">Planned Date</th>
+                            {canEditSubjectSyllabus(activeSyllabusSubject) && (
+                              <th className="py-3 px-3 text-right w-36">Actions</th>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {activeSyllabusSubject.topics.map((topic, index) => {
+                            const isEditing = editingTopicId === topic.id;
+
+                            if (isEditing) {
+                              return (
+                                <tr key={topic.id} className="bg-cyan-950/20 border-l-2 border-cyan-400">
+                                  <td className="py-3 px-3 text-center font-mono text-slate-400">{index + 1}</td>
+                                  <td className="py-3 px-3">
                                     <input
                                       type="text"
-                                      value={editingSlot.room}
-                                      onChange={(e) =>
-                                        setEditingSlot({ ...editingSlot, room: e.target.value })
-                                      }
-                                      placeholder="Room"
-                                      className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px]"
+                                      value={editingTopicData.unit}
+                                      onChange={(e) => setEditingTopicData({ ...editingTopicData, unit: e.target.value })}
+                                      className="w-full bg-slate-950 border border-cyan-500/40 rounded px-2 py-1 text-xs text-white"
                                     />
-                                    <div className="flex gap-1">
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <input
+                                      type="text"
+                                      value={editingTopicData.title}
+                                      onChange={(e) => setEditingTopicData({ ...editingTopicData, title: e.target.value })}
+                                      className="w-full bg-slate-950 border border-cyan-500/40 rounded px-2 py-1 text-xs text-white"
+                                    />
+                                  </td>
+                                  <td className="py-3 px-3 text-right">
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0.5"
+                                      value={editingTopicData.plannedHours}
+                                      onChange={(e) => setEditingTopicData({ ...editingTopicData, plannedHours: e.target.value })}
+                                      className="w-20 bg-slate-950 border border-cyan-500/40 rounded px-2 py-1 text-xs text-white font-mono text-right"
+                                    />
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    <select
+                                      value={editingTopicData.examScope}
+                                      onChange={(e) => setEditingTopicData({ ...editingTopicData, examScope: e.target.value })}
+                                      className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                                    >
+                                      <option value="Sessionals">Sessionals</option>
+                                      <option value="Mid-Term">Mid-Term</option>
+                                      <option value="PUT">PUT</option>
+                                      <option value="End-Term">End-Term</option>
+                                    </select>
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    <select
+                                      value={editingTopicData.status}
+                                      onChange={(e) => setEditingTopicData({ ...editingTopicData, status: e.target.value })}
+                                      className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                                    >
+                                      <option value="Pending">Pending</option>
+                                      <option value="In Progress">In Progress</option>
+                                      <option value="Completed">Completed</option>
+                                      <option value="Skipped">Skipped</option>
+                                    </select>
+                                  </td>
+                                  <td className="py-3 px-3 text-center text-xs font-mono text-slate-400">
+                                    {topic.plannedDate || "—"}
+                                  </td>
+                                  <td className="py-3 px-3 text-right">
+                                    <div className="flex items-center justify-end gap-1">
                                       <button
                                         type="button"
-                                        onClick={() => handleSaveSlotEdit(slot.subId, slot.slotIdx)}
-                                        className="flex-1 py-1 rounded bg-emerald-600 text-white font-semibold text-[10px]"
+                                        onClick={() => handleSaveEditTopic(topic.id)}
+                                        className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs"
                                       >
                                         Save
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => setEditingSlot(null)}
-                                        className="flex-1 py-1 rounded bg-slate-800 text-slate-300 text-[10px]"
+                                        onClick={() => setEditingTopicId(null)}
+                                        className="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:text-white text-xs"
                                       >
-                                        Cancel
+                                        ✕
                                       </button>
                                     </div>
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return (
+                              <tr key={topic.id} className="hover:bg-slate-800/40 transition">
+                                <td className="py-3 px-3 text-center font-mono text-slate-500 text-xs">
+                                  {index + 1}
+                                </td>
+                                <td className="py-3 px-3">
+                                  <span className="font-semibold text-slate-300 text-xs px-2 py-0.5 rounded bg-slate-950 border border-slate-800">
+                                    {topic.unit}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 font-semibold text-white">
+                                  <div className="flex items-center gap-2">
+                                    <span>{topic.title}</span>
+                                    {topic.isOverdue && (
+                                      <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/30">
+                                        Overdue
+                                      </span>
+                                    )}
                                   </div>
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono font-semibold text-cyan-300">
+                                  {topic.plannedHours.toFixed(1)}h
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-800 text-slate-300">
+                                    {topic.examScope}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <span
+                                    className={`text-[11px] px-2 py-0.5 rounded-full font-bold border ${
+                                      topic.status === "Completed"
+                                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                        : topic.status === "In Progress"
+                                        ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                        : topic.status === "Skipped"
+                                        ? "bg-slate-800 text-slate-500 border-slate-700"
+                                        : "bg-slate-800 text-slate-300 border-slate-700"
+                                    }`}
+                                  >
+                                    {topic.status}
+                                    {topic.status === "In Progress" && ` (${topic.pctComplete}%)`}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-center font-mono text-xs text-slate-400">
+                                  {topic.plannedDate === "Skipped" ? (
+                                    <span className="text-slate-600">Skipped</span>
+                                  ) : topic.plannedDate === "Beyond Calendar" ? (
+                                    <span className="text-rose-400 font-bold">Beyond End</span>
+                                  ) : (
+                                    topic.plannedDate
+                                  )}
+                                </td>
+                                {canEditSubjectSyllabus(activeSyllabusSubject) && (
+                                  <td className="py-3 px-3 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleStartEditTopic(topic)}
+                                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-semibold"
+                                        title="Edit topic"
+                                      >
+                                        ✎
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={index === 0}
+                                        onClick={() => handleMoveSyllabusTopic(index, "up")}
+                                        className="px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs disabled:opacity-30"
+                                        title="Move up"
+                                      >
+                                        ▲
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={index === activeSyllabusSubject.topics.length - 1}
+                                        onClick={() => handleMoveSyllabusTopic(index, "down")}
+                                        className="px-1.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs disabled:opacity-30"
+                                        title="Move down"
+                                      >
+                                        ▼
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteSyllabusTopic(topic.id, topic.title)}
+                                        className="px-2 py-1 rounded bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 text-xs font-semibold"
+                                        title="Delete topic"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  </td>
                                 )}
-                              </div>
+                              </tr>
                             );
                           })}
-                        </div>
-                      )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-
-            {/* ROLE-SCOPED TIMETABLE, FACULTY & SYLLABUS CONTROLS */}
-            {(canManageTimetableAndFaculty || canUploadLessonPlan) && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {canManageTimetableAndFaculty && (
-                  <form onSubmit={handleAddTimetableSlot} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">Manage Campus Timetable Slot</span>
-                      <span className="text-[11px] font-mono text-cyan-300">+{computeSlotHours(ttStart, ttEnd)}h/wk</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                      <select
-                        value={ttSubjectId}
-                        onChange={(e) => setTtSubjectId(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium sm:col-span-2"
-                      >
-                        {visibleSubjects.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.code} ({s.campus})
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={ttDay}
-                        onChange={(e) => setTtDay(Number(e.target.value))}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2 py-1.5 font-medium"
-                      >
-                        {Object.entries(DAY_NAMES).map(([k, v]) => (
-                          <option key={k} value={k}>
-                            {v}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        value={ttRoom}
-                        onChange={(e) => setTtRoom(e.target.value)}
-                        placeholder="Room"
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
-                      />
-                      <button type="submit" className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
-                        + Add
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="time"
-                        value={ttStart}
-                        onChange={(e) => setTtStart(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
-                      />
-                      <input
-                        type="time"
-                        value={ttEnd}
-                        onChange={(e) => setTtEnd(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
-                      />
-                    </div>
-                  </form>
                 )}
+              </div>
+            )}
 
-                {canManageTimetableAndFaculty && (
-                  <form onSubmit={handleAssignFaculty} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">Manage Campus Faculty Assignment</span>
-                      <span className="text-[11px] text-slate-400">Campus Manager / Admin</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <select
-                        value={assignSubId}
-                        onChange={(e) => {
-                          setAssignSubId(e.target.value);
-                          const sub = subjects.find((s) => s.id === e.target.value);
-                          if (sub) setAssignFacultyName(sub.faculty);
-                        }}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium"
-                      >
-                        {(visibleSubjects.length > 0
-                          ? visibleSubjects
-                          : subjects.filter((s) => selectedCampus === "ALL" || s.campus === selectedCampus)
-                        ).map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.code}: {s.name} ({s.campus} · {s.faculty})
-                          </option>
-                        ))}
-                      </select>
-                      <div>
-                        <input
-                          type="text"
-                          list="availableFacultyList"
-                          value={assignFacultyName}
-                          onChange={(e) => setAssignFacultyName(e.target.value)}
-                          placeholder="Select or enter faculty name"
-                          className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white"
-                        />
-                        <datalist id="availableFacultyList">
-                          {availableFaculty.map((fac) => (
-                            <option key={fac} value={fac} />
-                          ))}
-                        </datalist>
+            {/* SYLLABUS IMPORT MODAL */}
+            {syllabusImportModalOpen && activeSyllabusSubject && (
+              <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="max-w-2xl w-full rounded-3xl bg-slate-900 border border-slate-700 shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+                  {/* MODAL HEADER */}
+                  <div className="flex items-start justify-between pb-3 border-b border-slate-800">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                          <span>📥 Import Syllabus</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                            {activeSyllabusSubject.code} · {effectiveCampus} Campus
+                          </span>
+                        </h3>
                       </div>
-                      <button type="submit" className="py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
-                        Assign Faculty
-                      </button>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Bulk import syllabus topics exclusively for <strong className="text-white">{activeSyllabusSubject.name}</strong> ({effectiveCampus} campus).
+                      </p>
                     </div>
-                  </form>
-                )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyllabusImportModalOpen(false);
+                        setSyllabusImportText("");
+                      }}
+                      className="text-slate-400 hover:text-white text-lg font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
 
-                {canUploadLessonPlan && (
-                  <form onSubmit={handleAddLessonTopic} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5 text-xs lg:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">Upload Lesson Plan Topic (Faculty / Admin)</span>
-                      <span className="text-[11px] text-slate-400">Auto-computes planned date</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                      <select
-                        value={ttSubjectId}
-                        onChange={(e) => setTtSubjectId(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium sm:col-span-2"
-                      >
-                        {visibleSubjects.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.code} ({s.campus})
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        value={newTopicUnit}
-                        onChange={(e) => setNewTopicUnit(e.target.value)}
-                        placeholder="Unit"
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
+                  {/* INPUT MODE TABS */}
+                  <div className="grid grid-cols-2 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setSyllabusImportMode("paste")}
+                      className={`py-2 rounded-lg transition ${
+                        syllabusImportMode === "paste"
+                          ? "bg-cyan-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      📋 Copy & Paste Syllabus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSyllabusImportMode("file")}
+                      className={`py-2 rounded-lg transition ${
+                        syllabusImportMode === "file"
+                          ? "bg-cyan-600 text-white shadow"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      📁 Upload CSV / TXT File
+                    </button>
+                  </div>
+
+                  {/* PASTE MODE TEXTAREA */}
+                  {syllabusImportMode === "paste" ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <label className="font-semibold text-slate-300">
+                          Paste Topics (Comma `,` or Pipe `|` separated):
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSyllabusImportText(
+                              `Unit 1, Advanced ER Diagrams & Schemas, 4.0, Sessionals\n` +
+                              `Unit 1, Complex SQL Joins & Window Functions, 5.0, Mid-Term\n` +
+                              `Unit 2, Normalization Proofs (1NF to BCNF), 6.0, Mid-Term\n` +
+                              `Unit 3, B+ Tree Indexing & Query Plans, 5.5, PUT\n` +
+                              `Unit 4, Distributed Transactions & Two-Phase Commit, 6.0, End-Term`
+                            );
+                          }}
+                          className="text-cyan-400 hover:underline text-[11px]"
+                        >
+                          Fill Sample Topics
+                        </button>
+                      </div>
+                      <textarea
+                        rows={6}
+                        value={syllabusImportText}
+                        onChange={(e) => setSyllabusImportText(e.target.value)}
+                        placeholder={`Format: Unit, Topic Title, Planned Hours, Exam Scope\nExample:\nUnit 1, Relational Algebra & Calculus, 4.5, Sessionals\nUnit 2, Query Optimization & Execution, 5.0, Mid-Term\nUnit 3, Concurrency Control & Isolation, 6.0, End-Term`}
+                        className="w-full bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded-xl p-3 text-xs text-white font-mono focus:outline-none"
                       />
-                      <input
-                        type="text"
-                        value={newTopicTitle}
-                        onChange={(e) => setNewTopicTitle(e.target.value)}
-                        placeholder="Topic Title"
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 sm:col-span-2"
-                      />
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={newTopicHours}
-                        onChange={(e) => setNewTopicHours(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5"
-                      />
                     </div>
-                    <div className="flex gap-2">
-                      <select
-                        value={newTopicScope}
-                        onChange={(e) => setNewTopicScope(e.target.value)}
-                        className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 font-medium flex-1"
-                      >
-                        <option value="Sessionals">Sessionals</option>
-                        <option value="Mid-Term">Mid-Term</option>
-                        <option value="PUT">PUT</option>
-                        <option value="End-Term">End-Term</option>
-                      </select>
-                      <button type="submit" className="py-1.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">
-                        + Upload Topic
-                      </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="p-5 border-2 border-dashed border-slate-700 hover:border-cyan-400 rounded-2xl text-center space-y-2 bg-slate-950/60 transition">
+                        <div className="text-2xl">📄</div>
+                        <p className="text-xs text-slate-300 font-semibold">
+                          Select a CSV or plain text file containing syllabus topics
+                        </p>
+                        <input
+                          type="file"
+                          accept=".csv,.txt"
+                          onChange={handleSyllabusFileUpload}
+                          className="text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleDownloadSyllabusTemplate}
+                          className="text-xs text-cyan-400 hover:underline flex items-center gap-1"
+                        >
+                          <span>⬇️ Need a template? Download CSV format</span>
+                        </button>
+                      </div>
                     </div>
-                  </form>
-                )}
+                  )}
+
+                  {/* IMPORT ACTION OPTIONS: REPLACE VS APPEND */}
+                  <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                    <span className="font-semibold text-slate-300 block">Import Action:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition ${
+                        syllabusImportAction === "replace"
+                          ? "bg-rose-950/30 border-rose-500/40 text-rose-200"
+                          : "bg-slate-900 border-slate-800 text-slate-400"
+                      }`}>
+                        <input
+                          type="radio"
+                          name="importAction"
+                          checked={syllabusImportAction === "replace"}
+                          onChange={() => setSyllabusImportAction("replace")}
+                          className="accent-rose-500"
+                        />
+                        <div>
+                          <strong className="block text-white">🔄 Replace Existing Syllabus</strong>
+                          <span className="text-[11px] text-slate-400">
+                            Overwrites all {activeSyllabusSubject.topics.length} existing topics
+                          </span>
+                        </div>
+                      </label>
+
+                      <label className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition ${
+                        syllabusImportAction === "append"
+                          ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-200"
+                          : "bg-slate-900 border-slate-800 text-slate-400"
+                      }`}>
+                        <input
+                          type="radio"
+                          name="importAction"
+                          checked={syllabusImportAction === "append"}
+                          onChange={() => setSyllabusImportAction("append")}
+                          className="accent-emerald-500"
+                        />
+                        <div>
+                          <strong className="block text-white">➕ Append to Existing Syllabus</strong>
+                          <span className="text-[11px] text-slate-400">
+                            Adds imported topics after existing {activeSyllabusSubject.topics.length} topics
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* LIVE PARSED PREVIEW */}
+                  {(() => {
+                    const previewResult = parseSyllabusInput(syllabusImportText);
+                    if (syllabusImportText.trim().length === 0) return null;
+
+                    if (previewResult.error) {
+                      return (
+                        <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
+                          ⚠️ {previewResult.error}
+                        </div>
+                      );
+                    }
+
+                    const totalHours = previewResult.topics.reduce((acc, t) => acc + t.plannedHours, 0);
+
+                    return (
+                      <div className="space-y-2 border-t border-slate-800 pt-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                            <span>✅ Live Preview:</span>
+                            <span>{previewResult.topics.length} topics parsed ({totalHours.toFixed(1)} total hours)</span>
+                          </span>
+                          <span className="text-[11px] text-slate-400">Target: {activeSyllabusSubject.code} ({effectiveCampus})</span>
+                        </div>
+                        <div className="max-h-40 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 text-[11px]">
+                          <table className="w-full text-left">
+                            <thead className="border-b border-slate-800 bg-slate-900 text-slate-400">
+                              <tr>
+                                <th className="p-2">Unit</th>
+                                <th className="p-2">Topic</th>
+                                <th className="p-2 text-right">Hours</th>
+                                <th className="p-2 text-center">Scope</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/40">
+                              {previewResult.topics.map((t, idx) => (
+                                <tr key={idx} className="hover:bg-slate-900/50">
+                                  <td className="p-2 font-mono text-cyan-300">{t.unit}</td>
+                                  <td className="p-2 text-white truncate max-w-[200px]">{t.title}</td>
+                                  <td className="p-2 text-right font-mono text-emerald-300">{t.plannedHours.toFixed(1)}h</td>
+                                  <td className="p-2 text-center text-slate-300">{t.examScope}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* MODAL FOOTER */}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyllabusImportModalOpen(false);
+                        setSyllabusImportText("");
+                      }}
+                      className="py-2 px-4 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExecuteSyllabusImport}
+                      disabled={!syllabusImportText.trim() || parseSyllabusInput(syllabusImportText).topics.length === 0}
+                      className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:opacity-95 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 disabled:opacity-40 transition flex items-center gap-1.5"
+                    >
+                      <span>📥 Confirm & Apply to {activeSyllabusSubject.code} ({effectiveCampus})</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -4948,7 +6221,7 @@ export default function App() {
                   =CalendarWalk(Today+1..Deadline) + Bonus
                 </p>
                 <p className="text-[11px] text-slate-400">
-                  Until {auditedSubject.targetFinishDate} (+{remedialBonusHours}h remedial)
+                  Until {auditedSubject.targetFinishDate} (+{auditedSubject.remedialHoursApplied || 0}h remedial)
                 </p>
               </div>
 
